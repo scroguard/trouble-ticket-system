@@ -34,6 +34,7 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
 - [REST API](#rest-api)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ---
 
@@ -543,3 +544,13 @@ curl -s "http://localhost:8000/api/tickets?status=new&priority=urgent" \
 | Everyone gets "Too many failed login attempts" | Behind a proxy without `FORWARDED_ALLOW_IPS`, all users share the proxy's IP. See [step 4](#4-https-and-a-reverse-proxy). |
 | Locked out of every admin account | `docker compose run --rm web python -m app.cli set-password --email you@example.com` |
 | An agent reply shows **Not delivered** | Hover over it for the server's error, fix the SMTP settings or recipient, then click **Resend**. |
+
+---
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0**; see
+[`LICENSE`](LICENSE) for the full text.
+
+In short: you may use, study, modify and share this software, but if you distribute it
+(modified or not) you must make the source code available under the same license.
