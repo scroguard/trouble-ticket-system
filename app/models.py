@@ -400,3 +400,43 @@ class SiteSettings(Base):
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+
+
+class CustomerLoginToken(Base):
+    """One-time sign-in link emailed to a customer (only the SHA-256 is stored).
+    Also serves as the log for rate-limiting link requests."""
+
+    __tablename__ = "customer_login_tokens"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ip_address: Mapped[str | None] = mapped_column(INET)
+
+    __table_args__ = (
+        Index("ix_customer_login_tokens_email_created", "email", "created_at"),
+        Index("ix_customer_login_tokens_ip_created", "ip_address", "created_at"),
+    )
+
+
+class CustomerSession(Base):
+    """Customer portal session: a verified email address, nothing more. Kept apart
+    from agent sessions (own table, own cookie scoped to /portal)."""
+
+    __tablename__ = "customer_sessions"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ip_address: Mapped[str | None] = mapped_column(INET)
+    user_agent: Mapped[str | None] = mapped_column(String(512))

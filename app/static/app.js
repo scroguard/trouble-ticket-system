@@ -652,7 +652,8 @@ function commentItem(c) {
   }
   return messageCard("customer", {
     who: c.author_name || c.author_email || "Customer", whoTitle: c.author_email,
-    tag: h("span", { class: "badge text-bg-secondary" }, icon("bi-envelope-fill", "me-1"), c.source === "import" ? "Customer (imported)" : "Customer"),
+    tag: h("span", { class: "badge text-bg-secondary" }, icon(c.source === "web" ? "bi-globe" : "bi-envelope-fill", "me-1"),
+      { import: "Customer (imported)", web: "Customer (portal)" }[c.source] ?? "Customer"),
     time: c.created_at, body: c.body, attachments,
   });
 }
@@ -660,7 +661,8 @@ function commentItem(c) {
 function renderTimeline(t) {
   const original = messageCard("customer", {
     who: t.requester_name || t.requester_email, whoTitle: t.requester_email,
-    tag: h("span", { class: "badge text-bg-secondary" }, icon("bi-envelope-open-fill", "me-1"), t.source === "email" ? "Original email" : "Original request"),
+    tag: h("span", { class: "badge text-bg-secondary" }, icon(t.source === "email" ? "bi-envelope-open-fill" : "bi-globe", "me-1"),
+      t.source === "email" ? "Original email" : t.legacy_ref ? "Original request" : "Submitted via portal"),
     time: t.created_at, body: t.description, attachments: t.attachments,
   });
   original.classList.add("msg-original");

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db import session_scope
 from app.email_service import EmailService, InboundAttachment, InboundEmail
+from app.notifications import announce_new_ticket
 from app.storage import write_blob
 from app.models import (
     MessageSource,
@@ -212,12 +213,4 @@ class TicketIngestor:
 
     def _notify_new_ticket(self, ticket_id: int, priority_reasons: list[str]) -> None:
         """Runs after commit: an SMTP outage must never roll back or re-ingest a ticket."""
-        with session_scope() as db:
-            ticket = db.get(Ticket, ticket_id)
-            agents = db.scalars(
-                select(User).where(User.role == UserRole.AGENT, User.is_active.is_(True))
-            ).all()
-            if ticket is None:
-                return
-            self.email.broadcast_new_ticket(ticket, agents, priority_reasons)
-            self.email.send_new_ticket_ack(ticket)
+        announce_new_ticket(ticket_id, priority_reasons, self.email)

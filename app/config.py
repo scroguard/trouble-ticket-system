@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # Extra origins allowed to make state-changing browser requests (comma-separated).
     trusted_origins: str = ""
 
+    # --- Customer portal (/portal) ----------------------------------------
+    portal_enabled: bool = True
+    portal_link_minutes: int = 15             # how long an emailed sign-in link works
+    portal_session_days: int = 14             # how long a customer stays signed in
+    portal_links_per_hour: int = 5            # sign-in emails per address per hour
+    portal_links_per_ip_per_hour: int = 20
+    portal_tickets_per_hour: int = 10         # new tickets per customer per hour
+    portal_replies_per_hour: int = 30
+    portal_max_files: int = 5                 # attachments per message (each <= ATTACHMENT_MAX_BYTES)
+
     # --- Reply delivery retries --------------------------------------------
     reply_max_attempts: int = 6                # then give up (agents can resend)
     reply_retry_base_seconds: int = 300        # 5m, 10m, 20m, 40m, 80m ...

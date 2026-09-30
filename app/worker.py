@@ -19,7 +19,7 @@ from app.config import get_settings
 from app.db import session_scope
 from app.email_service import EmailService, PermanentEmailError
 from app.ingestion import TicketIngestor
-from app.models import LoginFailure, UserSession
+from app.models import CustomerLoginToken, CustomerSession, LoginFailure, UserSession
 from app.notifications import retry_due_replies
 
 log = logging.getLogger("app.worker")
@@ -37,6 +37,10 @@ def housekeeping() -> None:
         failures = db.execute(
             delete(LoginFailure).where(LoginFailure.attempted_at < now - LOGIN_FAILURE_RETENTION)
         ).rowcount
+        # Portal: expired customer sessions, and sign-in links older than a day (they
+        # double as the rate-limit log, which only looks back one hour).
+        sessions += db.execute(delete(CustomerSession).where(CustomerSession.expires_at <= now)).rowcount
+        db.execute(delete(CustomerLoginToken).where(CustomerLoginToken.created_at < now - LOGIN_FAILURE_RETENTION))
     if sessions or failures:
         log.info("Housekeeping: removed %d expired sessions, %d old login failures", sessions, failures)
 

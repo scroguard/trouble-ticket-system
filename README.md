@@ -29,6 +29,7 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
 - [Quick start (local, with a bundled test mail server)](#quick-start)
 - [Production deployment](#production-deployment)
 - [Configuration reference](#configuration-reference)
+- [Customer portal](#customer-portal)
 - [Operations](#operations): logs, upgrades, backups, CLI
 - [Importing from HESK](#importing-from-hesk)
 - [How it works](#how-it-works): threading, priorities, statuses, delivery
@@ -80,6 +81,15 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
   optionally setting the status in the same step. Ctrl+Enter sends.
 - Auto-refresh every 30 seconds with new-ticket alerts, drafts kept per ticket,
   a direct link to every ticket, dark mode, and a layout that works on phones.
+
+### Customer portal
+- Customers who prefer the web to email can open and follow tickets at
+  **`/portal/`**. They sign in with a one-time link sent to their email address, so
+  there are no passwords to create or forget.
+- Customers see all of their tickets, including ones they emailed in and history
+  imported from HESK, but never internal notes. They can reply, attach files, and mark
+  a ticket as solved.
+- See [Customer portal](#customer-portal) for details.
 
 ### Administration
 - Roles: **Admin** and **Agent**.
@@ -339,7 +349,18 @@ default and must be set.
 | `REPLY_RETRY_BASE_SECONDS` | `300` | First retry delay; doubles each time (capped at 6 h) |
 | `REPLY_PENDING_TIMEOUT_SECONDS` | `600` | The worker picks up replies stuck in "sending" this long (e.g. after a restart) |
 | `ATTACHMENT_DIR` | `/data/attachments` | Attachment storage inside the containers (the `attachments` volume) |
-| `ATTACHMENT_MAX_BYTES` | `20971520` | Larger attachments are skipped |
+| `ATTACHMENT_MAX_BYTES` | `20971520` | Larger email attachments are skipped; larger portal uploads are refused |
+
+### Customer portal
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORTAL_ENABLED` | `true` | Serve the customer portal at `/portal/` |
+| `PORTAL_LINK_MINUTES` | `15` | How long an emailed sign-in link works |
+| `PORTAL_SESSION_DAYS` | `14` | How long a customer stays signed in |
+| `PORTAL_LINKS_PER_HOUR` / `PORTAL_LINKS_PER_IP_PER_HOUR` | `5` / `20` | Sign-in emails per address / per network address |
+| `PORTAL_TICKETS_PER_HOUR` / `PORTAL_REPLIES_PER_HOUR` | `10` / `30` | New tickets / replies per customer |
+| `PORTAL_MAX_FILES` | `5` | Attachments per portal message |
 
 ### Sign-in and security
 
@@ -353,6 +374,58 @@ default and must be set.
 | `LOGIN_MAX_ATTEMPTS_PER_ACCOUNT` | `50` | Failed sign-ins per account per hour, from all IPs combined |
 | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | Proxies whose `X-Forwarded-For` header is trusted (read by uvicorn) |
 | `TRUSTED_ORIGINS` | | Extra comma-separated origins allowed to make changes from a browser |
+
+---
+
+## Customer portal
+
+The portal lives at **`https://your-help-desk/portal/`**. Link to it from your website
+or email signature. Customer emails (the "we received your request" acknowledgement
+and agent replies) include a "follow this ticket online" link to it automatically.
+
+**For customers**
+1. Enter an email address and click **Email me a sign-in link**. No account or
+   password is needed; anyone with an email address can use the portal, the same as
+   anyone can email support.
+2. Open the link from the email and click **Continue to sign in**. Links work once and
+   expire after 15 minutes (`PORTAL_LINK_MINUTES`). Customers stay signed in for 14 days
+   (`PORTAL_SESSION_DAYS`) unless they sign out.
+3. From there they can:
+   - **open a new request**, with attachments;
+   - **see all their tickets**: every ticket where they are the customer, whether it
+     came in by email, through the portal or from the HESK import;
+   - **follow the conversation and reply**, with attachments;
+   - click **This is solved** to mark a ticket resolved. Replying later reopens it,
+     exactly like replying by email.
+
+Statuses are shown in customer terms: *Received*, *In progress*, *Awaiting your
+reply*, *Resolved*, *Closed*.
+
+**For agents**, portal tickets work like any other:
+- New portal requests send the usual agent alert and a customer acknowledgement, and
+  get the same automatic priority escalation.
+- In the dashboard, they're marked **Submitted via portal**, and portal replies show as
+  **Customer (portal)**.
+- A customer clicking **This is solved** is recorded in the ticket history.
+- Your email replies reach the customer as usual, and they can answer from email or
+  the portal.
+
+**Privacy and safety**
+- A customer only ever sees tickets whose customer email is their own address; anything
+  else looks like it doesn't exist. **Internal notes**, files attached to them, and the
+  ticket's change history are never shown.
+- Portal sign-ins are completely separate from agent sign-ins (their own cookie,
+  limited to `/portal`).
+- Sign-in links are single-use. Signing in also retires any older unused links, and
+  the link only works after a click on the page, so email security scanners that
+  pre-open links can't use it up.
+- Limits stop the portal being used to flood inboxes or the queue:
+  - 5 sign-in emails per address and 20 per network address per hour;
+  - 10 new tickets and 30 replies per customer per hour;
+  - 5 attachments per message, each up to `ATTACHMENT_MAX_BYTES`.
+
+  All of these are adjustable in `.env` (`PORTAL_*`).
+- To switch the portal off, set `PORTAL_ENABLED=false` and restart.
 
 ---
 
@@ -662,6 +735,17 @@ The dashboard uses a JSON API that you can also call directly. Interactive docs 
 | `GET /api/admin/settings` · `PATCH /api/admin/settings` | admin | Read or change site settings (`site_name`) |
 | `GET /healthz` | anyone | Health check |
 
+Customer portal API (separate sign-in, used by `/portal/`):
+
+| Method & path | Purpose |
+|---|---|
+| `POST /portal/api/request-link` · `POST /portal/api/verify` · `POST /portal/api/logout` · `GET /portal/api/me` | Emailed-link sign-in |
+| `GET /portal/api/tickets` · `GET /portal/api/tickets/{id}` | The customer's own tickets and public conversation |
+| `POST /portal/api/tickets` | New ticket (multipart: `subject`, `message`, `name`, `files`) |
+| `POST /portal/api/tickets/{id}/messages` | Reply (multipart: `message`, `files`) |
+| `POST /portal/api/tickets/{id}/close` | Mark as solved |
+| `GET /portal/api/attachments/{id}` | Download an attachment from the customer's own ticket |
+
 Example:
 
 ```bash
@@ -684,6 +768,8 @@ curl -s "http://localhost:8000/api/tickets?status=new&priority=urgent" \
 │   ├── tickets.py         # ticket, comment and attachment routes
 │   ├── users.py           # user directory and admin routes
 │   ├── site.py            # admin-editable site settings (site name)
+│   ├── portal.py          # customer portal API
+│   ├── storage.py         # attachment file storage
 │   ├── email_service.py   # IMAP polling, parsing/sanitizing, SMTP, email templates
 │   ├── ingestion.py       # email → ticket/comment (threading rules)
 │   ├── notifications.py   # background sending with retry
@@ -693,7 +779,7 @@ curl -s "http://localhost:8000/api/tickets?status=new&priority=urgent" \
 │   ├── config.py          # settings (environment variables)
 │   ├── cli.py             # create-user / set-password
 │   ├── hesk_import.py     # importer for HESK ticket history
-│   └── static/            # dashboard: index.html, app.js, app.css, theme.js
+│   └── static/            # dashboard (index.html, app.js, app.css) and portal (portal.*)
 ├── migrations/            # Alembic database migrations
 ├── docs/screenshots/
 ├── docker-compose.yml

@@ -1,0 +1,53 @@
+/* Customer portal. Bootstrap 5.3 provides the base; colours use its variables so
+   light and dark mode both work. */
+
+body { background: var(--bs-tertiary-bg); min-height: 100vh; }
+.portal-container { max-width: 880px; margin: 0 auto; padding-left: 1rem; padding-right: 1rem; }
+.portal-header { background: var(--bs-body-bg); padding: .75rem 0; }
+.brand { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 600; font-size: 1.1rem; color: var(--bs-body-color); text-decoration: none; }
+.brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#logout { white-space: nowrap; }
+.brand .bi { font-size: 1.35rem; }
+#account-email { max-width: 40vw; }
+
+.panel { background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .75rem; padding: 1.5rem; }
+.signin-panel { max-width: 440px; margin: 2rem auto; }
+
+.ticket-row {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .85rem 1rem; border-bottom: 1px solid var(--bs-border-color-translucent);
+  color: var(--bs-body-color); text-decoration: none;
+}
+.ticket-row:last-child { border-bottom: 0; }
+.ticket-row:hover { background: var(--bs-tertiary-bg); }
+.ticket-row .subject { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-row .meta { font-size: .8rem; color: var(--bs-secondary-color); }
+.ticket-row .min-w-0 { min-width: 0; flex: 1; }
+
+.status { font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
+.status-new, .status-open, .status-in_progress { background: var(--bs-primary-bg-subtle); color: var(--bs-primary-text-emphasis); border-color: var(--bs-primary-border-subtle); }
+.status-pending  { background: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); border-color: var(--bs-warning-border-subtle); }
+.status-resolved { background: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); border-color: var(--bs-success-border-subtle); }
+.status-closed   { background: var(--bs-secondary-bg); color: var(--bs-secondary-color); border-color: var(--bs-border-color); }
+
+.conversation { display: flex; flex-direction: column; gap: 1rem; margin: 1.5rem 0; }
+.bubble { max-width: min(680px, 90%); border: 1px solid var(--bs-border-color); border-radius: .75rem; background: var(--bs-body-bg); }
+.bubble.mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); border-color: var(--bs-primary-border-subtle); }
+.bubble.support { align-self: flex-start; }
+.bubble-head { display: flex; gap: .5rem; align-items: baseline; padding: .5rem .9rem; font-size: .85rem; border-bottom: 1px solid var(--bs-border-color-translucent); }
+.bubble-head .who { font-weight: 600; }
+.bubble-head time { margin-left: auto; color: var(--bs-secondary-color); font-size: .8rem; }
+.bubble-body { padding: .75rem .9rem; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.files { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 .9rem .75rem; }
+.file-chip { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; padding: .2rem .6rem; border: 1px solid var(--bs-border-color); border-radius: 1rem; font-size: .8rem; color: var(--bs-body-color); background: var(--bs-body-bg); text-decoration: none; }
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+.empty { text-align: center; padding: 3rem 1rem; color: var(--bs-secondary-color); }
+.empty .bi { font-size: 2.5rem; display: block; margin-bottom: .5rem; opacity: .6; }
+textarea { resize: vertical; }
+
+@media (max-width: 575.98px) {
+  #account-email { display: none; }
+  .panel { padding: 1rem; border-radius: .5rem; }
+  .bubble { max-width: 100%; }
+}

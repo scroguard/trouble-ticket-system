@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app import auth, site, tickets, users
+from app import auth, portal, site, tickets, users
 from app.config import get_settings
 from app.db import get_db
 from app.errors import APIError, register_error_handlers
@@ -58,7 +58,7 @@ async def reject_cross_origin_writes(request: Request, call_next):
 async def dashboard_security_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path == "/" or path.startswith("/static/"):
+    if path in ("/", "/portal", "/portal/") or path.startswith("/static/"):
         response.headers["Content-Security-Policy"] = DASHBOARD_CSP
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -73,12 +73,14 @@ app.include_router(tickets.router)
 app.include_router(users.router)
 app.include_router(users.admin_router)
 app.include_router(site.router)
+app.include_router(portal.router)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 DASHBOARD_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+PORTAL_TEMPLATE = (STATIC_DIR / "portal.html").read_text(encoding="utf-8")
 
 
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
@@ -88,6 +90,17 @@ def dashboard() -> HTMLResponse:
     on first paint, including the sign-in screen."""
     name = html.escape(site.current_site_name(), quote=True)
     return HTMLResponse(DASHBOARD_TEMPLATE.replace("{{SITE_NAME}}", name))
+
+
+@app.api_route("/portal", methods=["GET", "HEAD"], include_in_schema=False)
+@app.api_route("/portal/", methods=["GET", "HEAD"], include_in_schema=False)
+def customer_portal() -> HTMLResponse:
+    """The customer portal (sign in with an emailed link, submit and follow tickets)."""
+    if not settings.portal_enabled:
+        raise APIError(404, "Not Found")
+    name = html.escape(site.current_site_name(), quote=True)
+    page = PORTAL_TEMPLATE.replace("{{SITE_NAME}}", name)
+    return HTMLResponse(page.replace("{{PORTAL_MAX_FILES}}", str(settings.portal_max_files)))
 
 
 @app.get("/healthz", include_in_schema=False)

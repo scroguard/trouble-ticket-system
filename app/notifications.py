@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.db import session_scope
 from app.email_service import EmailService, PermanentEmailError, TransientEmailError
-from app.models import DeliveryStatus, Ticket, TicketComment, User
+from app.models import DeliveryStatus, Ticket, TicketComment, User, UserRole
 
 log = logging.getLogger(__name__)
 
@@ -158,3 +158,22 @@ def notify_assignee(ticket_id: int, assignee_id: int, actor_id: int | None) -> N
             get_email_service().notify_assignment(ticket, assignee, actor)
     except Exception:
         log.exception("Assignment notice for ticket %s crashed", ticket_id)
+
+
+def announce_new_ticket(ticket_id: int, priority_reasons=(), email_service: EmailService | None = None) -> None:
+    """New ticket (from email or the portal): alert every active agent and send the
+    customer an acknowledgement. Runs after the ticket is committed; an SMTP outage
+    must never roll back or re-create a ticket, so failures are only logged."""
+    service = email_service or get_email_service()
+    try:
+        with session_scope() as db:
+            ticket = db.get(Ticket, ticket_id)
+            if ticket is None:
+                return
+            agents = db.scalars(
+                select(User).where(User.role == UserRole.AGENT, User.is_active.is_(True))
+            ).all()
+            service.broadcast_new_ticket(ticket, agents, list(priority_reasons))
+            service.send_new_ticket_ack(ticket)
+    except Exception:
+        log.exception("Announcing ticket %s failed", ticket_id)

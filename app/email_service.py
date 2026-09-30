@@ -334,7 +334,7 @@ def _one_line(value: str) -> str:
     return re.sub(r"[\r\n]+", " ", value).strip()
 
 
-def _safe_filename(name: str | None, fallback: str) -> str:
+def safe_filename(name: str | None, fallback: str) -> str:
     name = (name or "").replace("\\", "/").rsplit("/", 1)[-1]
     name = re.sub(r"[^\w.\- ()]+", "_", name).strip(" .")
     return name[:200] or fallback
@@ -533,7 +533,7 @@ class EmailService:
                 log.warning("Could not decode attachment %r", filename, exc_info=True)
                 skipped.append(filename or f"part-{index}")
                 continue
-            name = _safe_filename(filename, default_name)
+            name = safe_filename(filename, default_name)
             if len(data) > self.settings.attachment_max_bytes:
                 skipped.append(f"{name} (too large: {len(data)} bytes)")
                 continue
@@ -661,7 +661,30 @@ class EmailService:
     # ------------------------------------------------------------------ ticket mail
 
     def ticket_url(self, ticket: Ticket) -> str:
-        return f"{self.settings.app_base_url.rstrip('/')}/tickets/{ticket.id}"
+        return f"{self.settings.app_base_url.rstrip('/')}/#/tickets/{ticket.id}"
+
+    def portal_url(self, ticket: Ticket | None = None) -> str:
+        base = f"{self.settings.app_base_url.rstrip('/')}/portal/"
+        return f"{base}#/tickets/{ticket.id}" if ticket is not None else base
+
+    def _portal_line(self, ticket: Ticket) -> str:
+        if not self.settings.portal_enabled:
+            return ""
+        return f"\nYou can also follow this ticket online: {self.portal_url(ticket)}\n"
+
+    def send_portal_link(self, email: str, link: str, site_name: str, minutes: int) -> None:
+        """One-time sign-in link for the customer portal. Raises EmailError."""
+        msg = self.compose(
+            to=email,
+            subject=f"Your sign-in link for {site_name}",
+            text=(
+                f"Hello,\n\nUse this link to sign in to {site_name}:\n\n{link}\n\n"
+                f"The link works once and expires in {minutes} minutes.\n"
+                "If you didn't ask for it, you can ignore this email; nobody can sign in without it.\n"
+            ),
+            automated=True,
+        )
+        self.send(msg)
 
     def build_customer_reply(
         self, ticket: Ticket, comment: TicketComment, agent: User | None = None
@@ -685,6 +708,7 @@ class EmailService:
             f"{REPLY_MARKER}\n\n"
             f"{comment.body.strip()}{signature}\n\n"
             f"Ticket reference: {ticket.subject_tag} - please keep it in the subject line."
+            f"{self._portal_line(ticket)}"
         )
         msg = self.compose(
             to=formataddr((ticket.requester_name or "", ticket.requester_email)),
@@ -728,6 +752,7 @@ class EmailService:
                 f"We received your request and opened ticket {ticket.tracking_code}.\n"
                 "An agent will get back to you shortly. Simply reply to this email to add "
                 "more information.\n"
+                f"{self._portal_line(ticket)}"
             ),
             in_reply_to=ticket.message_id,
             references=[ticket.message_id] if ticket.message_id else [],
