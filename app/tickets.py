@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth import CurrentUser, current_user
@@ -140,7 +140,10 @@ def list_tickets(
         case int(agent_id):
             filters.append(Ticket.assigned_to_id == agent_id)
     if q and q.strip():
-        filters.append(Ticket.search_vector.op("@@")(func.websearch_to_tsquery("english", q)))
+        filters.append(or_(
+            Ticket.search_vector.op("@@")(func.websearch_to_tsquery("english", q)),
+            Ticket.legacy_ref == q.strip().strip("[]#").upper(),  # e.g. a HESK tracking ID
+        ))
 
     total = db.scalar(select(func.count()).select_from(Ticket).where(*filters))
     tickets = db.scalars(

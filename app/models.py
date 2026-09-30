@@ -97,6 +97,7 @@ class MessageSource(str, enum.Enum):
     EMAIL = "email"
     WEB = "web"
     SYSTEM = "system"
+    IMPORT = "import"  # history brought over from another help desk (app.hesk_import)
 
 
 class DeliveryStatus(str, enum.Enum):
@@ -180,6 +181,8 @@ class Ticket(TimestampMixin, Base):
 
     # RFC 5322 Message-ID of the email that opened the ticket (threading root).
     message_id: Mapped[str | None] = mapped_column(String(998), unique=True)
+    # Tracking ID in the help desk this ticket was imported from (e.g. HESK "ABC-DEF-1234").
+    legacy_ref: Mapped[str | None] = mapped_column(String(32), unique=True)
 
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_activity_at: Mapped[datetime] = mapped_column(
@@ -274,6 +277,8 @@ class TicketComment(Base):
     message_id: Mapped[str | None] = mapped_column(String(998), unique=True)
     in_reply_to: Mapped[str | None] = mapped_column(String(998))
     email_metadata: Mapped[dict | None] = mapped_column(JSONB)  # from/to/cc/subject/references
+    # Source record of an imported comment (e.g. "hesk:reply:42"); makes re-imports idempotent.
+    legacy_ref: Mapped[str | None] = mapped_column(String(64), unique=True)
 
     # Outbound delivery tracking (agent replies emailed to the customer).
     delivery_status: Mapped[DeliveryStatus | None] = mapped_column(

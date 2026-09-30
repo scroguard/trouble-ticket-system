@@ -40,6 +40,8 @@ log = logging.getLogger(__name__)
 T = TypeVar("T")
 
 TICKET_REF_RE = re.compile(rf"\[{TICKET_TAG_PREFIX}-(\d+)\]", re.IGNORECASE)
+# Tracking tag in emails sent by HESK, for tickets imported from it (see app.hesk_import).
+HESK_REF_RE = re.compile(r"\[#([A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{4})\]")
 MSGID_RE = re.compile(r"<[^<>\s]+>")
 SUBJECT_PREFIX_RE = re.compile(r"^\s*((re|fwd?|aw|sv|antw)\s*(\[\d+\])?\s*:\s*)+", re.IGNORECASE)
 REPLY_MARKER = "##- Please type your reply above this line -##"
@@ -174,6 +176,13 @@ class InboundEmail:
     def ticket_ref(self) -> int | None:
         match = TICKET_REF_RE.search(self.subject)
         return int(match.group(1)) if match else None
+
+    @property
+    def legacy_ref(self) -> str | None:
+        """HESK tracking ID from a reply to an email HESK sent. HESK strips spaces from
+        the subject before matching, so do the same."""
+        match = HESK_REF_RE.search(self.subject.replace(" ", ""))
+        return match.group(1) if match else None
 
     @property
     def thread_message_ids(self) -> list[str]:

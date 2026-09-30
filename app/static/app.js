@@ -553,6 +553,8 @@ async function syncOpenTicket() {
 function renderHeader(t) {
   $("t-subject").textContent = t.subject;
   $("t-code").textContent = t.tracking_code;
+  $("t-legacy").textContent = t.legacy_ref ? `HESK ${t.legacy_ref}` : "";
+  $("t-legacy").classList.toggle("d-none", !t.legacy_ref);
   $("t-requester").replaceChildren(
     t.requester_name ? h("span", {}, t.requester_name, " ") : null,
     h("a", { href: `mailto:${t.requester_email}`, class: "link-secondary" }, `<${t.requester_email}>`));
@@ -636,20 +638,21 @@ function commentItem(c) {
   if (c.is_internal) {
     return messageCard("note", {
       who: staffName, whoTitle: c.author?.email || c.author_email,
-      tag: h("span", { class: "badge text-bg-warning" }, icon("bi-lock-fill", "me-1"), c.source === "email" ? "Internal (via email)" : "Internal note"),
+      tag: h("span", { class: "badge text-bg-warning" }, icon("bi-lock-fill", "me-1"),
+        { email: "Internal (via email)", import: "Internal (imported)" }[c.source] ?? "Internal note"),
       time: c.created_at, body: c.body, attachments,
     });
   }
   if (c.author) {
     return messageCard("agent", {
       who: staffName, whoTitle: c.author.email,
-      tag: h("span", { class: "badge text-bg-primary" }, icon("bi-reply-fill", "me-1"), "Agent reply"),
+      tag: h("span", { class: "badge text-bg-primary" }, icon("bi-reply-fill", "me-1"), c.source === "import" ? "Agent reply (imported)" : "Agent reply"),
       time: c.created_at, body: c.body, attachments, foot: deliveryInfo(c),
     });
   }
   return messageCard("customer", {
     who: c.author_name || c.author_email || "Customer", whoTitle: c.author_email,
-    tag: h("span", { class: "badge text-bg-secondary" }, icon("bi-envelope-fill", "me-1"), "Customer"),
+    tag: h("span", { class: "badge text-bg-secondary" }, icon("bi-envelope-fill", "me-1"), c.source === "import" ? "Customer (imported)" : "Customer"),
     time: c.created_at, body: c.body, attachments,
   });
 }

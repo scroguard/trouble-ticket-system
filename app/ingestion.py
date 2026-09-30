@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
 from datetime import UTC, datetime
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db import session_scope
 from app.email_service import EmailService, InboundAttachment, InboundEmail
+from app.storage import write_blob
 from app.models import (
     MessageSource,
     Ticket,
@@ -101,6 +99,15 @@ class TicketIngestor:
                 "Subject references %s but sender %s is not its requester; opening a new ticket",
                 ref, inbound.from_address,
             )
+
+        # 3) Reply to an old HESK email ([#ABC-DEF-1234]) for a ticket imported from HESK,
+        #    with the same sender rule HESK itself applies.
+        if (legacy := inbound.legacy_ref) is not None:
+            ticket = db.scalar(select(Ticket).where(Ticket.legacy_ref == legacy))
+            if ticket and (staff or inbound.from_address == ticket.requester_email):
+                return ticket
+            if ticket:
+                log.warning("HESK tag %s from %s (not its requester); opening a new ticket", legacy, inbound.from_address)
         return None
 
     # ------------------------------------------------------------------ writes
@@ -199,22 +206,7 @@ class TicketIngestor:
             )
 
     def _write_blob(self, att: InboundAttachment) -> str:
-        """Content-addressed storage: identical files are stored once and re-ingesting
-        the same email is idempotent. Written atomically via rename."""
-        digest = att.sha256
-        rel_path = Path(digest[:2]) / digest
-        target = self.settings.attachment_dir / rel_path
-        if not target.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".upload-")
-            try:
-                with os.fdopen(fd, "wb") as fh:
-                    fh.write(att.data)
-                os.replace(tmp, target)
-            except BaseException:
-                Path(tmp).unlink(missing_ok=True)
-                raise
-        return str(rel_path)
+        return write_blob(self.settings.attachment_dir, att.data)[0]
 
     # ------------------------------------------------------------------ notifications
 

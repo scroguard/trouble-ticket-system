@@ -173,6 +173,7 @@ class CommentOut(ORMModel):
 class TicketSummary(ORMModel):
     id: int
     tracking_code: str
+    legacy_ref: str | None  # tracking ID in the help desk it was imported from
     subject: str
     status: TicketStatus
     priority: TicketPriority
