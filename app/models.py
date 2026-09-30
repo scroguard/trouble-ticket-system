@@ -190,6 +190,8 @@ class Ticket(TimestampMixin, Base):
     last_activity_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # When staff were last alerted about a customer reply (throttles bursts).
+    customer_reply_alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Weighted full-text search vector maintained by PostgreSQL itself.
     search_vector: Mapped[str] = mapped_column(
@@ -442,3 +444,26 @@ class CustomerSession(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ip_address: Mapped[str | None] = mapped_column(INET)
     user_agent: Mapped[str | None] = mapped_column(String(512))
+
+
+class OutboundEmail(Base):
+    """Automated emails we sent (acknowledgements, staff alerts, assignment notices).
+
+    Remembering their Message-IDs lets a reply to one of them (for example a
+    customer's out-of-office that ignores every "don't auto-reply" header) thread onto
+    its ticket instead of opening a new ticket, and lets us cap acknowledgements per
+    address. Agent replies are recorded on their comment instead.
+    """
+
+    __tablename__ = "outbound_emails"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    message_id: Mapped[str] = mapped_column(String(998), nullable=False, unique=True)
+    ticket_id: Mapped[int | None] = mapped_column(ForeignKey("tickets.id", ondelete="SET NULL"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)  # ack, new_ticket_alert, reply_alert, assignment
+    recipient: Mapped[str] = mapped_column(String(320), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_outbound_emails_recipient_kind_created", "recipient", "kind", "created_at"),)

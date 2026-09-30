@@ -15,13 +15,13 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from functools import lru_cache
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.db import session_scope
-from app.email_service import EmailService, PermanentEmailError, TransientEmailError
-from app.models import DeliveryStatus, Ticket, TicketComment, User, UserRole
+from app.email_service import NOREPLY_RE, EmailService, PermanentEmailError, TransientEmailError
+from app.models import DeliveryStatus, OutboundEmail, Ticket, TicketComment, User, UserRole
 
 log = logging.getLogger(__name__)
 
@@ -155,9 +155,84 @@ def notify_assignee(ticket_id: int, assignee_id: int, actor_id: int | None) -> N
                 return
             if ticket.assigned_to_id != assignee_id:
                 return  # re-assigned again before we got here; that change notifies instead
-            get_email_service().notify_assignment(ticket, assignee, actor)
+            if mid := get_email_service().notify_assignment(ticket, assignee, actor):
+                record_outbound(db, [mid], ticket.id, "assignment", assignee.email)
     except Exception:
         log.exception("Assignment notice for ticket %s crashed", ticket_id)
+
+
+def record_outbound(db: Session, message_ids, ticket_id: int | None, kind: str, recipient: str) -> None:
+    """Remember automated emails so replies to them thread (see OutboundEmail)."""
+    for mid in message_ids:
+        if mid:
+            db.add(OutboundEmail(message_id=mid, ticket_id=ticket_id, kind=kind, recipient=recipient.lower()))
+
+
+def _may_acknowledge(db: Session, email: str) -> bool:
+    """Loop breaker for acknowledgements: never to no-reply addresses, and at most
+    ACK_MAX_PER_ADDRESS_PER_HOUR per address, so even an auto-responder that ignores
+    every standard header can't keep a ticket <-> auto-reply loop going."""
+    email = email.lower()
+    if NOREPLY_RE.match(email.split("@", 1)[0]):
+        log.info("No acknowledgement to no-reply address %s", email)
+        return False
+    recent = db.scalar(
+        select(func.count()).select_from(OutboundEmail).where(
+            OutboundEmail.recipient == email, OutboundEmail.kind == "ack",
+            OutboundEmail.created_at > datetime.now(UTC) - timedelta(hours=1),
+        )
+    )
+    if recent >= get_settings().ack_max_per_address_per_hour:
+        log.warning("Acknowledgement to %s suppressed: %d already sent this hour (possible mail loop)", email, recent)
+        return False
+    return True
+
+
+def active_staff(db: Session) -> list[User]:
+    """Everyone who works tickets: agents and admins."""
+    return list(db.scalars(
+        select(User).where(User.role.in_((UserRole.AGENT, UserRole.ADMIN)), User.is_active.is_(True))
+        .order_by(User.id)
+    ))
+
+
+def alert_customer_reply(comment_id: int, reopened: bool = False, email_service: EmailService | None = None) -> None:
+    """A customer replied (by email or the portal): email the assignee, or all staff if
+    the ticket is unassigned (or its assignee was deactivated). Bursts are coalesced:
+    no new alert within the cooldown unless an agent has answered since the last one.
+    Runs after the reply is committed; failures are logged, never raised."""
+    s = get_settings()
+    if not s.customer_reply_alerts:
+        return
+    service = email_service or get_email_service()
+    try:
+        with session_scope() as db:
+            comment = db.get(TicketComment, comment_id)
+            if comment is None or comment.author_id is not None or comment.is_internal:
+                return
+            ticket = db.scalar(select(Ticket).where(Ticket.id == comment.ticket_id).with_for_update())
+            now = datetime.now(UTC)
+            last = ticket.customer_reply_alerted_at
+            if last and now - last < timedelta(minutes=s.customer_reply_alert_cooldown_minutes):
+                answered = db.scalar(
+                    select(TicketComment.id).where(
+                        TicketComment.ticket_id == ticket.id, TicketComment.author_id.is_not(None),
+                        TicketComment.is_internal.is_(False), TicketComment.created_at > last,
+                    ).limit(1)
+                )
+                if not answered:
+                    log.info("Reply alert for %s skipped (cooldown)", ticket.tracking_code)
+                    return
+            assignee = db.get(User, ticket.assigned_to_id) if ticket.assigned_to_id else None
+            recipients = [assignee] if assignee is not None and assignee.is_active else active_staff(db)
+            if not recipients:
+                return
+            report = service.alert_customer_reply(ticket, comment, recipients, reopened=reopened)
+            record_outbound(db, report.sent, ticket.id, "reply_alert", "staff")
+            if report.sent:
+                ticket.customer_reply_alerted_at = now
+    except Exception:
+        log.exception("Reply alert for comment %s failed", comment_id)
 
 
 def announce_new_ticket(ticket_id: int, priority_reasons=(), email_service: EmailService | None = None) -> None:
@@ -170,10 +245,11 @@ def announce_new_ticket(ticket_id: int, priority_reasons=(), email_service: Emai
             ticket = db.get(Ticket, ticket_id)
             if ticket is None:
                 return
-            agents = db.scalars(
-                select(User).where(User.role == UserRole.AGENT, User.is_active.is_(True))
-            ).all()
-            service.broadcast_new_ticket(ticket, agents, list(priority_reasons))
-            service.send_new_ticket_ack(ticket)
+            staff = active_staff(db)
+            report = service.broadcast_new_ticket(ticket, staff, list(priority_reasons))
+            record_outbound(db, report.sent, ticket.id, "new_ticket_alert", "staff")
+            if _may_acknowledge(db, ticket.requester_email):
+                if mid := service.send_new_ticket_ack(ticket):
+                    record_outbound(db, [mid], ticket.id, "ack", ticket.requester_email)
     except Exception:
         log.exception("Announcing ticket %s failed", ticket_id)

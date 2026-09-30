@@ -12,9 +12,10 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.db import session_scope
 from app.email_service import EmailService, InboundAttachment, InboundEmail
-from app.notifications import announce_new_ticket
+from app.notifications import alert_customer_reply, announce_new_ticket
 from app.storage import write_blob
 from app.models import (
+    OutboundEmail,
     MessageSource,
     Ticket,
     TicketAttachment,
@@ -47,6 +48,7 @@ class TicketIngestor:
             return
 
         new_ticket_id: int | None = None
+        reply_alert: tuple[int, bool] | None = None  # (comment id, reopened)
         try:
             with session_scope() as db:
                 if self._already_ingested(db, inbound.message_id):
@@ -57,7 +59,10 @@ class TicketIngestor:
                 )
                 ticket = self._resolve_thread(db, inbound, staff)
                 if ticket is not None:
-                    self._append_comment(db, ticket, inbound, staff)
+                    previous_status = ticket.status
+                    comment = self._append_comment(db, ticket, inbound, staff)
+                    if staff is None:
+                        reply_alert = (comment.id, ticket.status != previous_status)
                 else:
                     ticket = self._create_ticket(db, inbound)
                     new_ticket_id = ticket.id
@@ -68,6 +73,8 @@ class TicketIngestor:
 
         if new_ticket_id is not None:
             self._notify_new_ticket(new_ticket_id, inbound.priority_reasons)
+        if reply_alert is not None:
+            alert_customer_reply(*reply_alert, email_service=self.email)
 
     # ------------------------------------------------------------------ threading
 
@@ -86,6 +93,12 @@ class TicketIngestor:
                 ticket_id = db.scalar(
                     select(TicketComment.ticket_id).where(TicketComment.message_id.in_(ids)).limit(1)
                 )
+                if ticket_id is None:
+                    # A reply to one of our automated emails (acknowledgement, alert...).
+                    ticket_id = db.scalar(
+                        select(OutboundEmail.ticket_id)
+                        .where(OutboundEmail.message_id.in_(ids), OutboundEmail.ticket_id.is_not(None)).limit(1)
+                    )
                 ticket = db.get(Ticket, ticket_id) if ticket_id else None
             if ticket is not None:
                 return ticket

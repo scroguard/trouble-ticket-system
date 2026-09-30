@@ -36,7 +36,7 @@ from app.models import (
     TicketComment,
     TicketStatus,
 )
-from app.notifications import announce_new_ticket, get_email_service
+from app.notifications import alert_customer_reply, announce_new_ticket, get_email_service
 from app.security import hash_token, new_session_token
 from app.site import current_site_name
 from app.storage import write_blob
@@ -398,6 +398,7 @@ def reply(
     ticket_id: int,
     customer: Customer,
     db: DB,
+    background: BackgroundTasks,
     message: Annotated[str, Form()] = "",
     files: Annotated[list[UploadFile], File()] = [],
 ) -> PortalTicket:
@@ -419,10 +420,12 @@ def reply(
     db.flush()
     _store(db, ticket, comment, uploads)
     ticket.last_activity_at = datetime.now(UTC)
-    if ticket.status in REOPEN_ON_REPLY:  # same rule as a customer reply by email
+    reopened = ticket.status in REOPEN_ON_REPLY
+    if reopened:  # same rule as a customer reply by email
         ticket.status = TicketStatus.OPEN
         ticket.resolved_at = None
     db.flush()
+    background.add_task(alert_customer_reply, comment.id, reopened)  # after commit
     return _ticket_view(db, ticket.id, customer.email)
 
 

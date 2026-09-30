@@ -208,10 +208,10 @@ async function showList() {
     h("div", { class: "min-w-0" },
       h("div", { class: "subject", title: t.subject }, t.subject),
       h("div", { class: "meta" }, `#${t.reference} · updated `, timeEl(t.last_activity_at))),
-    statusBadge(t));
+    statusBadge(t), icon("bi-chevron-right", "chevron"));
   const section = (title, list) => list.length ? [
-    h("h2", { class: "h6 text-body-secondary text-uppercase small mt-4 mb-2" }, title, ` (${list.length})`),
-    h("div", { class: "panel p-0" }, list.map(row)),
+    h("h2", { class: "group-title" }, title, ` (${list.length})`),
+    h("div", { class: "ticket-group" }, list.map(row)),
   ] : [];
   render(
     h("div", { class: "d-flex flex-wrap align-items-center gap-2" },
@@ -231,7 +231,7 @@ function showNew() {
   const files = fileInput("new-files");
   const error = h("div", { class: "alert alert-danger py-2 small d-none", role: "alert" });
   const button = h("button", { class: "btn btn-primary px-4", type: "submit" }, "Submit request");
-  const form = h("form", { class: "panel mt-3", novalidate: true, onsubmit: async (e) => {
+  const form = h("form", { class: "panel new-panel mt-3", novalidate: true, onsubmit: async (e) => {
     e.preventDefault();
     error.classList.add("d-none");
     if (!subject.value.trim() || !message.value.trim()) {
@@ -270,13 +270,26 @@ function showNew() {
   subject.focus();
 }
 
-function bubble(m) {
-  return h("article", { class: `bubble ${m.from_customer ? "mine" : "support"}` },
-    h("header", { class: "bubble-head" }, h("span", { class: "who" }, m.from_customer ? "You" : m.author_name), timeEl(m.created_at)),
-    h("div", { class: "bubble-body" }, m.body || h("em", { class: "text-body-secondary" }, "(no text)")),
-    m.attachments.length ? h("div", { class: "files" }, m.attachments.map((a) =>
-      h("a", { class: "file-chip", href: a.download_url, download: a.filename, title: a.filename },
-        icon("bi-paperclip"), h("span", {}, a.filename), h("small", { class: "text-body-secondary" }, formatBytes(a.size_bytes))))) : null);
+const GROUP_GAP_MS = 60 * 60 * 1000;
+
+/**
+ * iMessage-style conversation: the customer's messages are blue on the right,
+ * support's grey on the left. Consecutive messages from the same person form a
+ * group: one caption above, the bubble tail on the last one.
+ */
+function conversation(messages) {
+  const key = (m) => (m.from_customer ? "me" : `them:${m.author_name}`);
+  const same = (a, b) => a && b && key(a) === key(b) && Math.abs(new Date(b.created_at) - new Date(a.created_at)) < GROUP_GAP_MS;
+  return messages.map((m, i) => {
+    const start = !same(messages[i - 1], m), tail = !same(m, messages[i + 1]);
+    return h("article", { class: `bubble-row ${m.from_customer ? "me mine" : "them support"}${start ? " group-start" : ""}${tail ? " tail" : ""}` },
+      start ? h("div", { class: "bubble-caption" }, h("span", { class: "who" }, m.from_customer ? "You" : m.author_name), "·", timeEl(m.created_at)) : null,
+      h("div", { class: "bubble", title: new Date(m.created_at).toLocaleString() },
+        h("div", { class: "bubble-body" }, m.body || h("em", {}, "(no text)")),
+        m.attachments.length ? h("div", { class: "bubble-files" }, m.attachments.map((a) =>
+          h("a", { class: "bubble-file file-chip", href: a.download_url, download: a.filename, title: a.filename },
+            icon("bi-paperclip"), h("span", { class: "name" }, a.filename), h("small", {}, formatBytes(a.size_bytes))))) : null));
+  });
 }
 
 async function showTicket(id) {
@@ -299,7 +312,7 @@ async function showTicket(id) {
   const files = fileInput("reply-files");
   const error = h("div", { class: "alert alert-danger py-2 small d-none", role: "alert" });
   const send = h("button", { class: "btn btn-primary px-4", type: "submit" }, icon("bi-send", "me-1"), "Send reply");
-  const reply = h("form", { class: "panel", novalidate: true, onsubmit: async (e) => {
+  const reply = h("form", { class: "panel reply-panel", novalidate: true, onsubmit: async (e) => {
     e.preventDefault();
     error.classList.add("d-none");
     if (!message.value.trim()) { message.focus(); return; }
@@ -345,7 +358,7 @@ async function showTicket(id) {
       h("div", { class: "d-flex align-items-center gap-2" }, statusBadge(t), solve)),
     t.is_open ? null : h("div", { class: "alert alert-success py-2 small mt-3 mb-0" }, icon("bi-check-circle", "me-1"),
       "This ticket is resolved. If you still need help, just reply below and it will reopen."),
-    h("div", { class: "conversation" }, t.messages.map(bubble)),
+    h("div", { class: "conversation chat chat-card" }, conversation(t.messages)),
     reply);
 }
 

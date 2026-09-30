@@ -1,53 +1,54 @@
-/* Customer portal. Bootstrap 5.3 provides the base; colours use its variables so
-   light and dark mode both work. */
+/* Customer portal. ios.css provides the Apple palette, font, controls and chat
+   bubbles; this file handles the portal's page layout. */
 
-body { background: var(--bs-tertiary-bg); min-height: 100vh; }
+body { background: var(--ios-bg); min-height: 100vh; }
 .portal-container { max-width: 880px; margin: 0 auto; padding-left: 1rem; padding-right: 1rem; }
-.portal-header { background: var(--bs-body-bg); padding: .75rem 0; }
-.brand { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 600; font-size: 1.1rem; color: var(--bs-body-color); text-decoration: none; }
+.portal-header { position: sticky; top: 0; z-index: 10; padding: .7rem 0; }
+.brand { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 700; font-size: 1.05rem; letter-spacing: -.02em; color: var(--ios-label); text-decoration: none; }
+.brand:hover { text-decoration: none; }
 .brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand .bi { font-size: 1.35rem; color: var(--ios-blue) !important; }
 #logout { white-space: nowrap; }
-.brand .bi { font-size: 1.35rem; }
 #account-email { max-width: 40vw; }
 
-.panel { background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: .75rem; padding: 1.5rem; }
-.signin-panel { max-width: 440px; margin: 2rem auto; }
+.panel { background: var(--ios-surface); border-radius: 1rem; padding: 1.5rem; box-shadow: var(--ios-shadow); }
+.signin-panel { max-width: 440px; margin: 2.5rem auto; border-radius: 1.25rem; }
+.signin-panel .display-6 { color: var(--ios-blue) !important; }
 
+/* Ticket list: an inset grouped list, like iOS Settings. */
+.ticket-group { background: var(--ios-surface); border-radius: .875rem; overflow: hidden; box-shadow: var(--ios-shadow); }
 .ticket-row {
-  display: flex; align-items: center; gap: .75rem;
-  padding: .85rem 1rem; border-bottom: 1px solid var(--bs-border-color-translucent);
-  color: var(--bs-body-color); text-decoration: none;
+  display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem;
+  color: var(--ios-label); text-decoration: none; position: relative;
 }
-.ticket-row:last-child { border-bottom: 0; }
-.ticket-row:hover { background: var(--bs-tertiary-bg); }
-.ticket-row .subject { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ticket-row .meta { font-size: .8rem; color: var(--bs-secondary-color); }
+.ticket-row + .ticket-row::before { content: ""; position: absolute; top: 0; left: 1rem; right: 0; border-top: .5px solid var(--ios-separator); }
+.ticket-row:hover { background: var(--ios-fill); text-decoration: none; }
+.ticket-row .subject { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -.01em; }
+.ticket-row .meta { font-size: .8rem; color: var(--ios-label-2); }
 .ticket-row .min-w-0 { min-width: 0; flex: 1; }
+.ticket-row .chevron { color: var(--ios-label-3); font-size: .9rem; }
+.group-title { font-size: .78rem; font-weight: 500; text-transform: uppercase; letter-spacing: .03em; color: var(--ios-label-2); margin: 1.5rem 1rem .4rem; }
 
-.status { font-weight: 600; border: 1px solid transparent; white-space: nowrap; }
-.status-new, .status-open, .status-in_progress { background: var(--bs-primary-bg-subtle); color: var(--bs-primary-text-emphasis); border-color: var(--bs-primary-border-subtle); }
-.status-pending  { background: var(--bs-warning-bg-subtle); color: var(--bs-warning-text-emphasis); border-color: var(--bs-warning-border-subtle); }
-.status-resolved { background: var(--bs-success-bg-subtle); color: var(--bs-success-text-emphasis); border-color: var(--bs-success-border-subtle); }
-.status-closed   { background: var(--bs-secondary-bg); color: var(--bs-secondary-color); border-color: var(--bs-border-color); }
+.status { font-weight: 600; font-size: .72rem; white-space: nowrap; }
+.status-new, .status-open, .status-in_progress { background: rgba(0, 122, 255, .14); color: var(--ios-blue); }
+.status-pending  { background: rgba(255, 149, 0, .16); color: var(--ios-orange); }
+.status-resolved { background: rgba(52, 199, 89, .16); color: var(--ios-green); }
+.status-closed   { background: var(--ios-fill); color: var(--ios-label-2); }
 
-.conversation { display: flex; flex-direction: column; gap: 1rem; margin: 1.5rem 0; }
-.bubble { max-width: min(680px, 90%); border: 1px solid var(--bs-border-color); border-radius: .75rem; background: var(--bs-body-bg); }
-.bubble.mine { align-self: flex-end; background: var(--bs-primary-bg-subtle); border-color: var(--bs-primary-border-subtle); }
-.bubble.support { align-self: flex-start; }
-.bubble-head { display: flex; gap: .5rem; align-items: baseline; padding: .5rem .9rem; font-size: .85rem; border-bottom: 1px solid var(--bs-border-color-translucent); }
-.bubble-head .who { font-weight: 600; }
-.bubble-head time { margin-left: auto; color: var(--bs-secondary-color); font-size: .8rem; }
-.bubble-body { padding: .75rem .9rem; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
-.files { display: flex; flex-wrap: wrap; gap: .4rem; padding: 0 .9rem .75rem; }
-.file-chip { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; padding: .2rem .6rem; border: 1px solid var(--bs-border-color); border-radius: 1rem; font-size: .8rem; color: var(--bs-body-color); background: var(--bs-body-bg); text-decoration: none; }
-.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+/* Conversation */
+.conversation { margin: 1rem 0 1.25rem; padding: 1rem 1rem 1.25rem; border-radius: 1.25rem; }
+.chat-card { background: var(--ios-chat-bg); box-shadow: var(--ios-shadow); }
 
-.empty { text-align: center; padding: 3rem 1rem; color: var(--bs-secondary-color); }
-.empty .bi { font-size: 2.5rem; display: block; margin-bottom: .5rem; opacity: .6; }
+.reply-panel textarea { border-radius: 1.125rem; padding: .6rem .9rem; }
+.reply-panel .btn-primary, .new-panel .btn-primary { border-radius: 999px; }
+
+.empty { text-align: center; padding: 3rem 1rem; color: var(--ios-label-2); }
+.empty .bi { font-size: 2.5rem; display: block; margin-bottom: .5rem; opacity: .5; }
 textarea { resize: vertical; }
 
 @media (max-width: 575.98px) {
   #account-email { display: none; }
-  .panel { padding: 1rem; border-radius: .5rem; }
-  .bubble { max-width: 100%; }
+  .panel { padding: 1rem; }
+  .conversation { padding: .75rem .5rem 1rem; border-radius: 1rem; }
+  .bubble { max-width: 85%; }
 }

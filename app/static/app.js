@@ -584,33 +584,33 @@ function renderHeader(t) {
 
 function attachmentChips(list) {
   if (!list?.length) return null;
-  return h("div", { class: "attachments" },
+  return h("div", { class: "attachments bubble-files" },
     list.map((a) => h("a", {
-      class: "attachment", href: a.download_url, download: a.filename,
+      class: "attachment bubble-file", href: a.download_url, download: a.filename,
       title: `${a.filename} (${a.content_type}, ${formatBytes(a.size_bytes)})`,
-    }, icon("bi-paperclip"), h("span", { class: "name" }, a.filename),
-      h("span", { class: "text-body-secondary" }, formatBytes(a.size_bytes)))));
+    }, icon("bi-paperclip"), h("span", { class: "name" }, a.filename), h("small", {}, formatBytes(a.size_bytes)))));
 }
 
+/** "Delivered"-style status under an agent's reply, like iMessage. */
 function deliveryInfo(c) {
   switch (c.delivery_status) {
     case "pending":
-      return h("span", { class: "delivery text-body-secondary" },
+      return h("span", { class: "delivery" },
         h("span", { class: "spinner-border", role: "status", "aria-hidden": "true" }), "Sending email…");
     case "sent":
-      return h("span", { class: "delivery text-success-emphasis", title: fullTime(c.delivered_at) },
-        icon("bi-check2-all"), "Emailed to customer ", c.delivered_at ? relTime(c.delivered_at) : "");
+      return h("span", { class: "delivery", title: fullTime(c.delivered_at) },
+        "Emailed to customer ", c.delivered_at ? relTime(c.delivered_at) : "");
     case "failed":
       if (c.next_attempt_at) {
-        return h("span", { class: "delivery text-warning-emphasis", title: c.delivery_error || "" },
+        return h("span", { class: "delivery retrying", title: c.delivery_error || "" },
           icon("bi-exclamation-triangle"),
           `Delivery failed (attempt ${c.delivery_attempts}); retrying ${relTime(c.next_attempt_at)}`);
       }
-      return h("span", { class: "delivery text-danger-emphasis flex-wrap" },
-        icon("bi-x-octagon"),
+      return h("span", { class: "delivery failed flex-wrap" },
+        icon("bi-exclamation-circle-fill"),
         h("span", { title: c.delivery_error || "" }, "Not delivered."),
         h("button", {
-          type: "button", class: "btn btn-sm btn-outline-danger py-0 ms-1",
+          type: "button", class: "btn btn-sm btn-outline-danger ms-1",
           onclick: (e) => resendReply(c.id, e.currentTarget),
         }, icon("bi-arrow-repeat", "me-1"), "Resend"));
     default:
@@ -618,57 +618,84 @@ function deliveryInfo(c) {
   }
 }
 
-function messageCard(kind, { who, whoTitle, tag, time, body, attachments, foot }) {
-  return h("article", { class: `msg msg-${kind}` },
-    h("header", { class: "msg-head" },
-      h("span", { class: "who", title: whoTitle || null }, who),
-      tag,
-      timeEl(time)),
-    h("div", { class: "msg-body" }, body || h("em", { class: "text-body-secondary" }, "(no text)")),
-    attachmentChips(attachments),
-    foot ? h("footer", { class: "msg-foot" }, foot) : null);
+const SIDE = { customer: "them", agent: "me", note: "me note" };
+const GROUP_GAP_MS = 60 * 60 * 1000; // a new group (with its caption) after an hour
+
+/**
+ * One chat message. `kind` is customer (grey, left), agent (blue, right) or note
+ * (yellow, right). Within a run of messages from the same person, only the first
+ * shows the caption and only the last gets the bubble tail, as in iMessage.
+ */
+function messageCard(kind, { who, whoTitle, tag, time, body, attachments, foot }, { groupStart = true, tail = true } = {}) {
+  return h("article", { class: `msg msg-${kind} bubble-row ${SIDE[kind]}${groupStart ? " group-start" : ""}${tail ? " tail" : ""}` },
+    groupStart ? h("header", { class: "msg-head bubble-caption" },
+      h("span", { class: "who", title: whoTitle || null }, who), tag, timeEl(time)) : null,
+    h("div", { class: "msg-bubble bubble", title: fullTime(time) },
+      h("div", { class: "msg-body" }, body || h("em", {}, "(no text)")),
+      attachmentChips(attachments)),
+    foot ? h("footer", { class: "msg-foot bubble-status" }, foot) : null);
 }
 
-function commentItem(c) {
-  if (c.source === "system") {
-    return h("div", { class: "msg-system" }, icon("bi-clock-history"), h("span", {}, c.body), h("span", { "aria-hidden": "true" }, "·"), timeEl(c.created_at));
+/** Classify a comment: its bubble kind and who "said" it (for grouping). */
+function commentKind(c) {
+  if (c.source === "system") return { kind: "system" };
+  if (c.is_internal) return { kind: "note", key: `note:${c.author?.id ?? c.author_name}` };
+  if (c.author) return { kind: "agent", key: `agent:${c.author.id}` };
+  return { kind: "customer", key: `customer:${c.author_email || ""}` };
+}
+
+function commentItem(c, grouping) {
+  const { kind } = commentKind(c);
+  if (kind === "system") {
+    return h("div", { class: "msg-system chat-event" }, icon("bi-clock-history"), h("span", {}, c.body), " · ", timeEl(c.created_at, ""));
   }
   const staffName = c.author?.full_name || c.author_name || c.author_email || "Agent";
   const attachments = c.attachments;
-  if (c.is_internal) {
+  if (kind === "note") {
     return messageCard("note", {
       who: staffName, whoTitle: c.author?.email || c.author_email,
-      tag: h("span", { class: "badge text-bg-warning" }, icon("bi-lock-fill", "me-1"),
+      tag: h("span", { class: "badge msg-tag-note" }, icon("bi-lock-fill", "me-1"),
         { email: "Internal (via email)", import: "Internal (imported)" }[c.source] ?? "Internal note"),
       time: c.created_at, body: c.body, attachments,
-    });
+    }, grouping);
   }
-  if (c.author) {
+  if (kind === "agent") {
     return messageCard("agent", {
       who: staffName, whoTitle: c.author.email,
-      tag: h("span", { class: "badge text-bg-primary" }, icon("bi-reply-fill", "me-1"), c.source === "import" ? "Agent reply (imported)" : "Agent reply"),
+      tag: h("span", { class: "badge msg-tag-agent" }, c.source === "import" ? "Agent reply (imported)" : "Agent reply"),
       time: c.created_at, body: c.body, attachments, foot: deliveryInfo(c),
-    });
+    }, grouping);
   }
   return messageCard("customer", {
     who: c.author_name || c.author_email || "Customer", whoTitle: c.author_email,
-    tag: h("span", { class: "badge text-bg-secondary" }, icon(c.source === "web" ? "bi-globe" : "bi-envelope-fill", "me-1"),
+    tag: h("span", { class: "badge msg-tag-customer" }, icon(c.source === "web" ? "bi-globe" : "bi-envelope-fill", "me-1"),
       { import: "Customer (imported)", web: "Customer (portal)" }[c.source] ?? "Customer"),
     time: c.created_at, body: c.body, attachments,
-  });
+  }, grouping);
 }
 
 function renderTimeline(t) {
-  const original = messageCard("customer", {
-    who: t.requester_name || t.requester_email, whoTitle: t.requester_email,
-    tag: h("span", { class: "badge text-bg-secondary" }, icon(t.source === "email" ? "bi-envelope-open-fill" : "bi-globe", "me-1"),
-      t.source === "email" ? "Original email" : t.legacy_ref ? "Original request" : "Submitted via portal"),
-    time: t.created_at, body: t.description, attachments: t.attachments,
+  // The opening message counts as the customer's first message.
+  const entries = [
+    { key: `customer:${t.requester_email}`, time: t.created_at, original: true },
+    ...t.comments.map((c) => ({ ...commentKind(c), time: c.created_at, comment: c })),
+  ];
+  const sameGroup = (a, b) => a && b && a.key && a.key === b.key && Math.abs(new Date(b.time) - new Date(a.time)) < GROUP_GAP_MS;
+  const nodes = entries.map((e, i) => {
+    const grouping = { groupStart: !sameGroup(entries[i - 1], e), tail: !sameGroup(e, entries[i + 1]) };
+    if (!e.original) return commentItem(e.comment, grouping);
+    const original = messageCard("customer", {
+      who: t.requester_name || t.requester_email, whoTitle: t.requester_email,
+      tag: h("span", { class: "badge msg-tag-customer" }, icon(t.source === "email" ? "bi-envelope-open-fill" : "bi-globe", "me-1"),
+        t.source === "email" ? "Original email" : t.legacy_ref ? "Original request" : "Submitted via portal"),
+      time: t.created_at, body: t.description, attachments: t.attachments,
+    }, { groupStart: true, tail: grouping.tail });
+    original.classList.add("msg-original");
+    return original;
   });
-  original.classList.add("msg-original");
   // Messages live in a width-capped column so customer and agent bubbles stay close
   // together on wide monitors; the timeline itself still scrolls full width.
-  $("timeline").replaceChildren(h("div", { class: "timeline-inner" }, original, ...t.comments.map(commentItem)));
+  $("timeline").replaceChildren(h("div", { class: "timeline-inner" }, ...nodes));
 }
 
 function isTimelineAtBottom() {

@@ -68,6 +68,17 @@ class Settings(BaseSettings):
     # Extra origins allowed to make state-changing browser requests (comma-separated).
     trusted_origins: str = ""
 
+    # --- Staff alerts ------------------------------------------------------
+    # Email the assignee (or all staff if unassigned) when a customer replies.
+    customer_reply_alerts: bool = True
+    # A burst of customer messages produces one alert; a new one is sent after this
+    # long, or as soon as an agent has answered in between.
+    customer_reply_alert_cooldown_minutes: int = 5
+
+    # Loop breaker: at most this many "we received your request" acknowledgements per
+    # address per hour, whatever the other side's auto-responder does.
+    ack_max_per_address_per_hour: int = 3
+
     # --- Customer portal (/portal) ----------------------------------------
     portal_enabled: bool = True
     portal_link_minutes: int = 15             # how long an emailed sign-in link works

@@ -178,6 +178,11 @@ class InboundEmail:
         return int(match.group(1)) if match else None
 
     @property
+    def is_noreply(self) -> bool:
+        """A no-reply sender: we may open a ticket, but never send it an acknowledgement."""
+        return bool(NOREPLY_RE.match(self.from_address.split("@", 1)[0]))
+
+    @property
     def legacy_ref(self) -> str | None:
         """HESK tracking ID from a reply to an email HESK sent. HESK strips spaces from
         the subject before matching, so do the same."""
@@ -504,7 +509,9 @@ class EmailService:
             html_body=html_body,
             attachments=attachments,
             skipped_attachments=skipped,
-            is_auto_generated=_is_auto_generated(msg),
+            is_auto_generated=_is_auto_generated(
+                msg, own_address=self.settings.smtp_from_address, from_address=from_address, subject=subject,
+            ),
             priority=assessment.priority,
             priority_reasons=assessment.reasons,
         )
@@ -647,6 +654,9 @@ class EmailService:
             if len(refs) > MAX_REFERENCES:  # RFC 5322: keep the root + most recent
                 refs = refs[:1] + refs[-(MAX_REFERENCES - 1) :]
             msg["References"] = " ".join(refs)
+        # Stamped on everything we send: if it ever comes back to the support mailbox
+        # (bounced, forwarded by a rule), the ingestion loop guard recognises it.
+        msg["X-Loop"] = s.smtp_from_address
         if automated:
             # Tells well-behaved auto-responders (OOO etc.) not to reply -> no mail loops.
             msg["Auto-Submitted"] = "auto-generated"
@@ -845,10 +855,54 @@ class EmailService:
         )
         return report
 
+    def alert_customer_reply(
+        self, ticket: Ticket, comment: TicketComment, recipients: Iterable[User], *, reopened: bool = False
+    ) -> SendReport:
+        """Tell staff a customer is waiting: `[HIGH] Customer replied: [TICKET-n] ...`."""
+        priority = ticket.priority
+        tag = priority.label.upper()
+        who = formataddr((comment.author_name or ticket.requester_name or "", comment.author_email or ticket.requester_email))
+        via = "the customer portal" if comment.source.value == "web" else "email"
+        excerpt = (comment.body or "").strip()
+        if len(excerpt) > 1500:
+            excerpt = excerpt[:1500].rstrip() + " [...]"
+        headline = "Customer replied (ticket reopened)" if reopened else "Customer replied"
+        assignee = ticket.assignee.full_name if ticket.assignee else "Unassigned"
+        text = (
+            f"{headline}\n\n"
+            f"Ticket:   {ticket.tracking_code}\n"
+            f"Subject:  {ticket.subject}\n"
+            f"From:     {who} (via {via})\n"
+            f"Priority: {priority.label}\n"
+            f"Status:   {ticket.status.value}\n"
+            f"Assigned: {assignee}\n"
+            f"Open:     {self.ticket_url(ticket)}\n\n"
+            f"{excerpt}\n\n"
+            "Reply from the dashboard so the customer gets your answer. (Replying to this\n"
+            "email adds an internal note instead.)\n"
+        )
+        messages = [
+            self.compose(
+                to=str(Address(display_name=user.full_name, addr_spec=user.email)),
+                subject=f"[{tag}] {headline}: {ticket.subject_tag} {clean_subject(ticket.subject)}",
+                text=text,
+                automated=True,
+                extra_headers={
+                    "X-Ticket-ID": ticket.tracking_code,
+                    "X-Ticket-Priority": priority.value,
+                    **PRIORITY_HEADERS.get(priority, {}),
+                },
+            )
+            for user in recipients
+        ]
+        report = self.send_messages(messages)
+        log.info("Reply alert %s: %d sent, %d failed", ticket.tracking_code, len(report.sent), len(report.failed))
+        return report
+
     def notify_assignment(
         self, ticket: Ticket, assignee: User, assigned_by: User | None = None
-    ) -> bool:
-        """Tell an agent a ticket was (re)assigned to them."""
+    ) -> str | None:
+        """Tell an agent a ticket was (re)assigned to them. Returns the Message-ID."""
         by = f" by {assigned_by.full_name}" if assigned_by else ""
         msg = self.compose(
             to=str(Address(display_name=assignee.full_name, addr_spec=assignee.email)),
@@ -872,11 +926,10 @@ class EmailService:
             },
         )
         try:
-            self.send(msg)
-            return True
+            return self.send(msg)
         except EmailError as exc:
             log.error("Assignment notice for %s not delivered: %s", ticket.tracking_code, exc)
-            return False
+            return None
 
 
 # =========================================================================== internals
@@ -932,15 +985,45 @@ def _leaf_parts(part: EmailMessage) -> Iterator[EmailMessage]:
         yield part
 
 
-def _is_auto_generated(msg: EmailMessage) -> bool:
-    """Detect bounces, out-of-office replies and bulk mail to prevent ticket loops."""
+# Subjects used by auto-responders and bounce messages (English plus the common
+# European variants), matched at the start after Re:/Fwd: prefixes are removed.
+AUTO_REPLY_SUBJECT_RE = re.compile(
+    r"^\s*(?:(?:re|fwd?|aw|sv|antw)\s*:\s*)*("
+    r"auto(?:matic|matische?)?[\s-]*(?:reply|response|antwort|answer)"
+    r"|auto:\s*(?:re|aw|sv)\s*:"
+    r"|autoreply|autoresponse|out of (?:the )?office|ooo\b|on (?:annual )?leave"
+    r"|abwesenheit|r[ée]ponse automatique|absence|respuesta autom[áa]tica|fuera de la oficina"
+    r"|risposta automatica|automatisch antwoord|afwezig|autosvar|fr[åa]nvaro|poza biurem"
+    r"|delivery status notification|undeliver(?:able|ed)|mail delivery (?:failed|subsystem)"
+    r"|returned mail|failure notice|delivery failure|message not delivered|non[- ]?delivery"
+    r")",
+    re.IGNORECASE,
+)
+# Mailboxes that only ever send automated mail (bounces, system notices).
+BOUNCE_SENDERS = {"mailer-daemon", "postmaster", "mail-daemon", "bounce", "bounces"}
+NOREPLY_RE = re.compile(r"^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|donotreply)", re.IGNORECASE)
+
+
+def _is_auto_generated(msg: EmailMessage, *, own_address: str = "", from_address: str = "", subject: str = "") -> bool:
+    """Detect bounces, out-of-office replies and other automatic mail, so it never
+    creates tickets, reopens them or triggers alerts (which is what keeps an
+    auto-responder and the help desk from answering each other forever)."""
     auto_submitted = _header(msg, "Auto-Submitted").strip().lower()
-    if auto_submitted and auto_submitted != "no":
+    if auto_submitted and auto_submitted != "no":                      # RFC 3834
         return True
     if _header(msg, "Precedence").strip().lower() in {"bulk", "junk", "list", "auto_reply"}:
         return True
-    if msg.get("X-Autoreply") or msg.get("X-Autorespond"):
+    if msg.get("X-Autoreply") or msg.get("X-Autorespond") or msg.get("X-Autoresponder"):
         return True
-    if _header(msg, "Return-Path").strip() == "<>":  # DSN / bounce
+    suppress = _header(msg, "X-Auto-Response-Suppress").lower()        # Exchange/Outlook
+    if "all" in suppress or "oof" in suppress:
         return True
-    return msg.get_content_type() == "multipart/report"
+    if own_address and own_address.lower() in _header(msg, "X-Loop").lower():
+        return True                                                     # our own mail, bounced back
+    if _header(msg, "Return-Path").strip() == "<>":                   # DSN / bounce
+        return True
+    if msg.get_content_type() == "multipart/report":
+        return True
+    if from_address.split("@", 1)[0].lower() in BOUNCE_SENDERS:
+        return True
+    return bool(AUTO_REPLY_SUBJECT_RE.search(subject or ""))
