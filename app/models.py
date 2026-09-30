@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
+    SmallInteger,
     Computed,
     DateTime,
     Enum,
@@ -372,3 +374,24 @@ class LoginFailure(Base):
         Index("ix_login_failures_ip_attempted", "ip_address", "attempted_at"),
         Index("ix_login_failures_email_attempted", "email", "attempted_at"),
     )
+
+
+DEFAULT_SITE_NAME = "Support Desk"
+
+
+class SiteSettings(Base):
+    """Site-wide settings editable by admins. Exactly one row (id = 1); add a column
+    here for each new setting."""
+
+    __tablename__ = "site_settings"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    site_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default=DEFAULT_SITE_NAME, server_default=DEFAULT_SITE_NAME
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)

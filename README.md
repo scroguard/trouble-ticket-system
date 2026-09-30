@@ -85,6 +85,10 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
 - Admins add users (with a generated password), edit them, reset passwords, clear
   failed sign-ins, and deactivate or reactivate accounts. Deactivating can also return
   that person's open tickets to the Unassigned queue.
+- Admins can rename the site (the name shown in the header, on the sign-in page and in
+  the browser tab) under **Admin → Site settings**. The email sender name is set
+  separately with `SMTP_FROM_NAME`.
+- Every user can change their own password from the menu under their name (top right).
 - Users are never deleted, so ticket history stays intact.
 
 ### Security
@@ -491,6 +495,7 @@ The dashboard uses a JSON API that you can also call directly. Interactive docs 
 | `POST /api/users/{id}/password` | admin | Set a new password (signs the user out everywhere) |
 | `POST /api/users/{id}/unlock` | admin | Clear failed sign-in attempts |
 | `GET /api/admin/users` | admin | Users with open-ticket counts and recent failed sign-ins |
+| `GET /api/admin/settings` · `PATCH /api/admin/settings` | admin | Read or change site settings (`site_name`) |
 | `GET /healthz` | anyone | Health check |
 
 Example:
@@ -514,6 +519,7 @@ curl -s "http://localhost:8000/api/tickets?status=new&priority=urgent" \
 │   ├── auth.py            # sign-in, sessions, rate limiting, /auth routes
 │   ├── tickets.py         # ticket, comment and attachment routes
 │   ├── users.py           # user directory and admin routes
+│   ├── site.py            # admin-editable site settings (site name)
 │   ├── email_service.py   # IMAP polling, parsing/sanitizing, SMTP, email templates
 │   ├── ingestion.py       # email → ticket/comment (threading rules)
 │   ├── notifications.py   # background sending with retry

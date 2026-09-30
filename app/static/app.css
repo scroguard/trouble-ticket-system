@@ -264,6 +264,7 @@ body { background: var(--bs-body-bg); overflow: hidden; }
 .admin-view { flex: 1; min-height: 0; overflow-y: auto; background: var(--bs-tertiary-bg); }
 .admin-inner { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.25rem 2rem; }
 .admin-search { width: 260px; }
+.site-name-field { min-width: 220px; max-width: 480px; }
 .admin-summary { display: flex; flex-wrap: wrap; gap: .75rem; }
 .admin-summary .stat {
   flex: 1 1 140px;

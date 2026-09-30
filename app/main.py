@@ -1,15 +1,16 @@
 """FastAPI entrypoint: `uvicorn app.main:app`."""
 
+import html
 import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app import auth, tickets, users
+from app import auth, site, tickets, users
 from app.config import get_settings
 from app.db import get_db
 from app.errors import APIError, register_error_handlers
@@ -71,15 +72,22 @@ app.include_router(auth.router)
 app.include_router(tickets.router)
 app.include_router(users.router)
 app.include_router(users.admin_router)
+app.include_router(site.router)
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+DASHBOARD_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
-def dashboard() -> FileResponse:
-    """The single-page agent dashboard (talks to the API with the session cookie)."""
-    return FileResponse(STATIC_DIR / "index.html")
+def dashboard() -> HTMLResponse:
+    """The single-page agent dashboard (talks to the API with the session cookie).
+    The admin-configurable site name is filled in here, HTML-escaped, so it is right
+    on first paint, including the sign-in screen."""
+    name = html.escape(site.current_site_name(), quote=True)
+    return HTMLResponse(DASHBOARD_TEMPLATE.replace("{{SITE_NAME}}", name))
 
 
 @app.get("/healthz", include_in_schema=False)

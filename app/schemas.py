@@ -102,6 +102,24 @@ class PasswordChange(BaseModel):
         return self
 
 
+class SiteSettingsOut(ORMModel):
+    site_name: str
+    updated_at: datetime
+
+
+class SiteSettingsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    site_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+    @field_validator("site_name")
+    @classmethod
+    def _printable(cls, value: str) -> str:
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+            raise ValueError("site_name cannot contain control characters")
+        return value
+
+
 class UnlockOut(BaseModel):
     cleared_failures: int
 

@@ -65,6 +65,8 @@ const state = {
   adminUsers: [],
   editingUser: null,          // user being edited in the user modal (null = adding)
   resetUser: null,
+  // Rendered into the page by the server, so it is correct before any API call.
+  siteName: document.querySelector('meta[name="site-name"]')?.content || "Support Desk",
 };
 
 // ====================================================================== utilities
@@ -920,7 +922,8 @@ async function showAdminView() {
     $("admin-link").classList.add("d-none");
     document.querySelector(".panes").classList.add("d-none");
     $("admin-view").classList.remove("d-none");
-    document.title = "Users · Support Desk";
+    updateTitle();
+    loadSiteSettings();
   }
   await loadAdminUsers();
 }
@@ -933,7 +936,7 @@ function hideAdminView() {
   $("admin-link").classList.toggle("d-none", !isAdmin());
   document.querySelector(".panes").classList.remove("d-none");
   $("admin-view").classList.add("d-none");
-  document.title = "Support Desk";
+  updateTitle();
 }
 
 /** Re-read our own account (role may have been changed by another admin). */
@@ -942,6 +945,52 @@ async function refreshMe() {
     state.me = await api("/auth/me");
     applyIdentity();
   } catch { /* 401 handled by api() */ }
+}
+
+function updateTitle() {
+  document.title = state.adminMode ? `Users · ${state.siteName}` : state.siteName;
+}
+
+function applySiteName(name) {
+  state.siteName = name;
+  $("brand-name").textContent = name;
+  $("login-site-name").textContent = name;
+  document.querySelector('meta[name="site-name"]')?.setAttribute("content", name);
+  updateTitle();
+}
+
+async function loadSiteSettings() {
+  $("site-name-input").value = state.siteName;
+  try {
+    const settings = await api("/api/admin/settings");
+    $("site-name-input").value = settings.site_name;
+    if (settings.site_name !== state.siteName) applySiteName(settings.site_name); // changed by another admin
+  } catch (err) {
+    if (err.status !== 401 && err.status !== 403) toast(`Could not load settings: ${err.detail}`, "danger");
+  }
+}
+
+async function onSiteSubmit(event) {
+  event.preventDefault();
+  const input = $("site-name-input");
+  const name = input.value.trim();
+  showFormError("site-error", "");
+  if (!name) {
+    input.classList.add("is-invalid");
+    return showFormError("site-error", "Enter a site name.");
+  }
+  const button = $("site-save");
+  button.disabled = true;
+  try {
+    const settings = await api("/api/admin/settings", { method: "PATCH", body: { site_name: name } });
+    input.value = settings.site_name;
+    applySiteName(settings.site_name);
+    toast("Site name updated");
+  } catch (err) {
+    if (err.status !== 401) showFormError("site-error", err.detail);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadAdminUsers() {
@@ -1237,6 +1286,8 @@ function bindEvents() {
     el.addEventListener("hidden.bs.modal", () => delete el.dataset.hiding);
   }
   $("admin-add").addEventListener("click", () => openUserModal());
+  $("site-form").addEventListener("submit", onSiteSubmit);
+  $("site-name-input").addEventListener("input", () => $("site-name-input").classList.remove("is-invalid"));
   $("admin-search").addEventListener("input", renderAdmin);
   $("admin-show-inactive").addEventListener("change", renderAdmin);
   $("user-form").addEventListener("submit", onUserSubmit);
