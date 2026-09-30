@@ -7,3 +7,6 @@ data/
 # contain customer data. Never commit these.
 hesk*.zip
 hesk-import/
+
+# Local screenshots / reference material (never commit)
+samples/

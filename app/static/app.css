@@ -180,6 +180,9 @@ body { background: var(--bs-body-bg); overflow: hidden; }
   padding: 1.25rem;
   background: var(--bs-tertiary-bg);
 }
+/* Conversation column: like a chat on a phone, bubbles alternate within a readable
+   width instead of drifting to opposite edges of a wide monitor. */
+.timeline-inner { max-width: var(--conversation-max, 1000px); margin: 0 auto; }
 .new-activity { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); border-radius: 2rem; }
 
 .msg {

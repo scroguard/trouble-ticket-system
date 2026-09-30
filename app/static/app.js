@@ -666,7 +666,9 @@ function renderTimeline(t) {
     time: t.created_at, body: t.description, attachments: t.attachments,
   });
   original.classList.add("msg-original");
-  $("timeline").replaceChildren(original, ...t.comments.map(commentItem));
+  // Messages live in a width-capped column so customer and agent bubbles stay close
+  // together on wide monitors; the timeline itself still scrolls full width.
+  $("timeline").replaceChildren(h("div", { class: "timeline-inner" }, original, ...t.comments.map(commentItem)));
 }
 
 function isTimelineAtBottom() {
