@@ -1,0 +1,7 @@
+# portal_api suite: small limits so they can be hit quickly.
+x-small: &small
+  ATTACHMENT_MAX_BYTES: "1048576"
+  PORTAL_TICKETS_PER_HOUR: "4"
+services:
+  web: { environment: *small }
+  worker: { environment: *small }

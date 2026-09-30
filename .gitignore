@@ -10,3 +10,8 @@ hesk-import/
 
 # Local screenshots / reference material (never commit)
 samples/
+
+# Test runner output
+tests/.logs/
+tests/.shots/
+__pycache__/

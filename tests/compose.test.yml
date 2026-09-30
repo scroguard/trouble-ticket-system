@@ -1,0 +1,45 @@
+# Test settings, applied on top of docker-compose.yml by run.sh. They override
+# anything in .env, so your real settings never leak into (or break) a test run.
+x-test-env: &test-env
+  APP_BASE_URL: http://localhost:${TT_WEB_PORT:-18000}
+  SECRET_KEY: test-only-secret-key-0123456789-abcdefghijklmnop
+  DATABASE_URL: postgresql+psycopg://tickets:tickets-test@db:5432/tickets
+  LOG_LEVEL: INFO
+  IMAP_HOST: mail
+  IMAP_PORT: "3143"
+  IMAP_USE_SSL: "false"
+  IMAP_USE_STARTTLS: "false"
+  IMAP_USER: support@example.com
+  IMAP_PASSWORD: test
+  IMAP_MAILBOX: INBOX
+  IMAP_POLL_INTERVAL: "5"
+  SMTP_HOST: mail
+  SMTP_PORT: "3025"
+  SMTP_USE_SSL: "false"
+  SMTP_USE_STARTTLS: "false"
+  SMTP_USER: ""
+  SMTP_PASSWORD: ""
+  SMTP_FROM_ADDRESS: support@example.com
+  SMTP_FROM_NAME: Example Support
+  EMAIL_MAX_RETRIES: "4"
+  EMAIL_RETRY_BASE_DELAY: "1"
+  SESSION_COOKIE_SECURE: "false"
+  TRUSTED_ORIGINS: ""
+  PRIORITY_ESCALATION_ENABLED: "true"
+  CUSTOMER_REPLY_ALERTS: "true"
+  CUSTOMER_REPLY_ALERT_COOLDOWN_MINUTES: "5"
+  ACK_MAX_PER_ADDRESS_PER_HOUR: "3"
+  PORTAL_ENABLED: "true"
+  PORTAL_TICKETS_PER_HOUR: "10"
+  PORTAL_MAX_FILES: "5"
+  ATTACHMENT_MAX_BYTES: "20971520"
+  REPLY_MAX_ATTEMPTS: "6"
+  REPLY_RETRY_BASE_SECONDS: "300"
+
+services:
+  migrate:
+    environment: *test-env
+  web:
+    environment: *test-env
+  worker:
+    environment: *test-env

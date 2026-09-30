@@ -1,0 +1,11 @@
+# api_admin suite: quick reply-retry cycles and short mail timeouts, so stopping the
+# mail server is noticed in seconds rather than minutes.
+x-fast: &fast
+  REPLY_RETRY_BASE_SECONDS: "5"
+  REPLY_MAX_ATTEMPTS: "3"
+  EMAIL_MAX_RETRIES: "1"
+  SMTP_TIMEOUT: "3"
+  IMAP_TIMEOUT: "3"
+services:
+  web: { environment: *fast }
+  worker: { environment: *fast }

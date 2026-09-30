@@ -52,8 +52,9 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
 - **Safe parsing.** HTML is sanitized (scripts, styles and tracking images removed),
   plain text is preferred, and attachments are extracted and stored (20 MB limit per
   file by default).
-- **Loop and spam protection.** Auto-replies, out-of-office messages, bounces, and mail
-  from the support address itself are ignored.
+- **Mail-loop protection.** Auto-replies, out-of-office messages, bounces and our own
+  mail coming back are ignored, and even an auto-responder that ignores every standard
+  header can't start a ticket ↔ auto-reply loop (see [Mail loops](#mail-loops)).
 - **Automatic priority.** New tickets start at *Medium*. Urgency keywords (URGENT,
   EMERGENCY, CRITICAL, OUTAGE, "server down", …) or a sender's "high importance" flag
   escalate them to *High* or *Urgent*. Negations such as "not urgent" don't count.
@@ -61,8 +62,12 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
   in the mailbox and skipped, so it can't block everything behind it.
 
 ### Notifications (SMTP)
-- **New-ticket alerts** go to every active agent. The priority leads the subject line
-  (`[URGENT] New Ticket Created: …`), and the email has a colour-coded banner.
+- **New-ticket alerts** go to every active agent and admin. The priority leads the
+  subject line (`[URGENT] New Ticket Created: …`), and the email has a colour-coded banner.
+- **Customer-reply alerts** tell staff a customer is waiting: a reply by email or
+  through the portal alerts the ticket's assignee, or all staff if it's unassigned
+  (`[HIGH] Customer replied: …`, or *Customer replied (ticket reopened)*). A burst of
+  messages produces one alert; a new one is sent once an agent has answered.
 - **Customer acknowledgement** with their tracking number when a ticket is opened.
 - **Agent replies** are emailed to the customer inside the original thread.
 - **Assignment notices** go to an agent when a ticket is assigned to them.
@@ -71,6 +76,10 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
   with a **Resend** button.
 
 ### Agent dashboard
+- An Apple-style interface in light and dark mode: iMessage-style conversation bubbles
+  (customer grey on the left, your replies blue on the right, internal notes yellow),
+  frosted bars, segmented controls and rounded, grouped lists. The customer portal
+  shares the same look.
 - Split pane: the ticket queue on the left, the conversation on the right.
 - Status tabs with live counts (All, New, Open, Pending, Resolved), plus filters for
   assignee, full-text search and sort order.
@@ -258,7 +267,7 @@ docker compose run --rm web python -m app.cli create-user \
 ```
 
 Then sign in, open **Admin**, and add your agents. New-ticket alerts go to every active
-user with the *Agent* role.
+agent and admin.
 
 ### 4. HTTPS and a reverse proxy
 
@@ -343,6 +352,14 @@ default and must be set.
 | `SMTP_TIMEOUT` | `30` | Network timeout in seconds |
 | `EMAIL_MAX_RETRIES` | `4` | Immediate reconnect attempts for IMAP/SMTP network errors |
 | `EMAIL_RETRY_BASE_DELAY` / `EMAIL_RETRY_MAX_DELAY` | `2` / `60` | Backoff between those attempts, in seconds |
+
+### Staff alerts and mail loops
+
+| Variable | Default | Description |
+|---|---|---|
+| `CUSTOMER_REPLY_ALERTS` | `true` | Email staff when a customer replies (assignee, or everyone if unassigned) |
+| `CUSTOMER_REPLY_ALERT_COOLDOWN_MINUTES` | `5` | One alert per burst of customer messages, unless an agent answered in between |
+| `ACK_MAX_PER_ADDRESS_PER_HOUR` | `3` | Loop breaker: at most this many "we received your request" emails per address per hour |
 
 ### Tickets and delivery
 
@@ -489,6 +506,68 @@ docker compose run --rm web python -m app.cli create-user --email a@example.com 
 # and sign it out everywhere (e.g. when no admin can sign in)
 docker compose run --rm web python -m app.cli set-password --email a@example.com
 ```
+
+### Stacks managed by Dockhand, Portainer or similar
+
+The `docker compose …` commands in this README assume you started the system with
+`docker compose` from this folder, which names the project `tickets`. Stack managers
+such as **Dockhand** or **Portainer** give the stack their own project name (usually the
+stack's name). Running `docker compose run …` from this folder then quietly starts a
+*separate*, empty copy of the system instead of talking to yours.
+
+Use `docker exec` on the stack's own containers instead. Find their names with:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Label "com.docker.compose.project"}}'
+```
+
+With a stack named `mts-trouble-tickets`, for example, the containers are
+`mts-trouble-tickets-web-1`, `mts-trouble-tickets-db-1` and so on, and the network is
+`mts-trouble-tickets_default`. Replace `STACK` below with your stack's name:
+
+```bash
+# Create a user / reset a password (-it so it can prompt for the password)
+docker exec -it STACK-web-1 python -m app.cli create-user --email a@example.com --name "Ann" --role agent
+docker exec -it STACK-web-1 python -m app.cli set-password --email a@example.com
+
+# Logs and health
+docker logs -f STACK-worker-1
+docker logs -f STACK-web-1
+
+# Database backup / restore
+docker exec STACK-db-1 sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > tickets-$(date +%F).dump
+docker exec -i STACK-db-1 sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < tickets-YYYY-MM-DD.dump
+
+# Attachments backup (the volume is STACK_attachments)
+docker run --rm -v STACK_attachments:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/attachments-$(date +%F).tgz -C /data .
+```
+
+Stop and start the stack from Dockhand or Portainer rather than with `docker compose`.
+Deploy updates there too: pull the new code, then redeploy with a rebuild.
+
+**HESK import under a stack manager:** start the temporary database on the stack's
+network, copy the attachments into the web container, and run the importer there:
+
+```bash
+docker run -d --name hesk-import-db --network STACK_default \
+  -e MARIADB_ROOT_PASSWORD=temp-password -e MARIADB_DATABASE=hesk \
+  -v "$PWD/hesk-import/hesk.sql:/docker-entrypoint-initdb.d/hesk.sql:ro" mariadb:11
+until docker exec hesk-import-db healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; do sleep 3; done
+docker cp hesk-import/attachments STACK-web-1:/tmp/hesk-attachments
+docker exec -e HESK_DB_URL=mysql://root:temp-password@hesk-import-db:3306/hesk STACK-web-1 \
+  python -m app.hesk_import --attachments-dir /tmp/hesk-attachments --dry-run
+# ...then the same command without --dry-run, and tidy up:
+docker exec -u 0 STACK-web-1 rm -rf /tmp/hesk-attachments
+docker rm -fv hesk-import-db
+```
+
+### Automated tests
+
+`tests/run.sh` runs the end-to-end test suites (nearly 400 checks, covering email,
+the API, the portal and the browser interface) against a throwaway copy of the
+system, under its own project name and ports, so it never touches your deployment.
+See [`tests/README.md`](tests/README.md).
 
 ---
 
@@ -697,6 +776,29 @@ The reason is recorded as an internal note on the ticket, e.g. *Priority automat
 set to Urgent: keyword "URGENT" in subject*. Replies never change an existing ticket's
 priority.
 
+### Mail loops
+
+An auto-responder and a help desk can answer each other forever: we acknowledge a
+ticket, their out-of-office replies, that becomes a new ticket, which we acknowledge...
+Several independent safeguards stop that:
+
+1. **Everything we send automatically is marked** (`Auto-Submitted: auto-generated`,
+   `X-Auto-Response-Suppress: All`), so well-behaved auto-responders stay silent. All
+   outgoing mail also carries `X-Loop`, so our own mail coming back is recognised.
+2. **Automatic mail is recognised and ignored:** RFC 3834 headers, `Precedence: bulk`,
+   Exchange out-of-office headers, bounces (empty return path, delivery reports,
+   mailer-daemon/postmaster senders) and typical subjects such as "Automatic reply",
+   "Out of Office", "Undeliverable" and their common European equivalents. Ignored
+   mail never creates or reopens tickets or triggers alerts.
+3. **Replies to our automated emails thread onto their ticket.** Every
+   acknowledgement and alert is remembered, so an auto-reply to one lands on the
+   ticket it belongs to instead of opening a new one.
+4. **Hard cap:** at most 3 acknowledgements per address per hour
+   (`ACK_MAX_PER_ADDRESS_PER_HOUR`). Even a completely non-compliant auto-responder
+   can only bounce a few times before we stop answering it.
+5. **No acknowledgements to no-reply addresses** (`noreply@`, `do-not-reply@`, …).
+   Their mail still becomes a ticket.
+
 ### Reply delivery
 
 An agent's reply is saved first, then emailed in the background, so a slow mail server
@@ -784,8 +886,9 @@ curl -s "http://localhost:8000/api/tickets?status=new&priority=urgent" \
 │   ├── config.py          # settings (environment variables)
 │   ├── cli.py             # create-user / set-password
 │   ├── hesk_import.py     # importer for HESK ticket history
-│   └── static/            # dashboard (index.html, app.js, app.css) and portal (portal.*)
+│   └── static/            # dashboard (index.html, app.js, app.css), portal (portal.*), shared ios.css
 ├── migrations/            # Alembic database migrations
+├── tests/                 # end-to-end test suites and runner (tests/run.sh)
 ├── docs/screenshots/
 ├── docker-compose.yml
 ├── Dockerfile

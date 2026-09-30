@@ -76,8 +76,8 @@ services:
         -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
         -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.verbose=false
     ports:
-      - "3025:3025"   # SMTP
-      - "3143:3143"   # IMAP
+      - "${MAILTEST_SMTP_PORT:-3025}:3025"   # SMTP
+      - "${MAILTEST_IMAP_PORT:-3143}:3143"   # IMAP
 
 volumes:
   pgdata:
