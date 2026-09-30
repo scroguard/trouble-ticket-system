@@ -703,7 +703,12 @@ class EmailService:
             (c.message_id for c in reversed(ticket.comments) if c.is_from_customer and c.message_id),
             ticket.message_id,
         )
-        signature = f"\n\n-- \n{agent.full_name}\n{self.settings.smtp_from_name}" if agent else ""
+        # Agents with their own signature already have it in the reply text (or chose
+        # to leave it off); everyone else gets a simple name line.
+        signature = (
+            f"\n\n-- \n{agent.full_name}\n{self.settings.smtp_from_name}"
+            if agent and not agent.signature else ""
+        )
         text = (
             f"{REPLY_MARKER}\n\n"
             f"{comment.body.strip()}{signature}\n\n"

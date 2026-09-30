@@ -725,7 +725,18 @@ function onPriorityChange() {
 
 const replyMode = () => (document.querySelector('input[name="reply-mode"]:checked')?.value ?? "public");
 
+/** Show the "Add my signature" option only for customer replies by someone who has one. */
+function updateSignatureRow() {
+  const sig = state.me?.signature || "";
+  const show = Boolean(sig) && replyMode() !== "internal";
+  $("signature-row").classList.toggle("d-none", !show);
+  const oneLine = sig.split("\n").map((l) => l.trim()).filter(Boolean).join(" · ");
+  $("signature-preview").textContent = oneLine;
+  $("signature-preview").title = sig;
+}
+
 function updateReplyMode() {
+  updateSignatureRow();
   const internal = replyMode() === "internal";
   $("reply-form").classList.toggle("is-internal", internal);
   $("reply-body").placeholder = internal
@@ -767,7 +778,9 @@ async function onReplySubmit(event) {
   button.disabled = true;
   textarea.readOnly = true;
   try {
-    await api(`/api/tickets/${t.id}/comments`, { method: "POST", body: { body, is_internal: internal, status } });
+    const include_signature = $("reply-signature").checked;
+    await api(`/api/tickets/${t.id}/comments`, { method: "POST", body: { body, is_internal: internal, status, include_signature } });
+    $("reply-signature").checked = true; // back to the default for the next reply
     textarea.value = "";
     $("reply-status").value = "";
     state.drafts.delete(t.id);
@@ -829,6 +842,28 @@ function stopDeliveryWatch() {
 }
 
 // ====================================================================== misc actions
+
+function openSignatureModal() {
+  $("signature-text").value = state.me?.signature || "";
+  showFormError("signature-error", "");
+  showModal("signature-modal");
+}
+
+async function onSignatureSubmit(event) {
+  event.preventDefault();
+  const button = $("signature-save");
+  button.disabled = true;
+  try {
+    state.me = await api("/auth/me", { method: "PATCH", body: { signature: $("signature-text").value } });
+    bootstrap.Modal.getInstance($("signature-modal")).hide();
+    updateSignatureRow();
+    toast(state.me.signature ? "Signature saved" : "Signature removed");
+  } catch (err) {
+    if (err.status !== 401) showFormError("signature-error", err.detail);
+  } finally {
+    button.disabled = false;
+  }
+}
 
 async function onPasswordSubmit(event) {
   event.preventDefault();
@@ -967,10 +1002,11 @@ function applySiteName(name) {
 }
 
 async function loadSiteSettings() {
-  $("site-name-input").value = state.siteName;
+  const input = $("site-name-input");
+  const prefilled = (input.value = state.siteName);
   try {
     const settings = await api("/api/admin/settings");
-    $("site-name-input").value = settings.site_name;
+    if (input.value === prefilled) input.value = settings.site_name; // don't overwrite what the admin is typing
     if (settings.site_name !== state.siteName) applySiteName(settings.site_name); // changed by another admin
   } catch (err) {
     if (err.status !== 401 && err.status !== 403) toast(`Could not load settings: ${err.detail}`, "danger");
@@ -1286,6 +1322,10 @@ function bindEvents() {
   $("logout-btn").addEventListener("click", logout);
   $("theme-toggle").addEventListener("click", toggleTheme);
   $("change-password-open").addEventListener("click", () => showModal("password-modal"));
+  $("signature-open").addEventListener("click", openSignatureModal);
+  $("signature-edit").addEventListener("click", openSignatureModal);
+  $("signature-form").addEventListener("submit", onSignatureSubmit);
+  $("signature-modal").addEventListener("shown.bs.modal", () => $("signature-text").focus());
   $("password-form").addEventListener("submit", onPasswordSubmit);
 
   for (const el of document.querySelectorAll(".modal")) {

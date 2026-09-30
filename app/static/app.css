@@ -262,6 +262,8 @@ body { background: var(--bs-body-bg); overflow: hidden; }
 }
 .reply-box.is-internal #reply-submit { --bs-btn-bg: #b58105; --bs-btn-border-color: #b58105; --bs-btn-hover-bg: #9a6d04; --bs-btn-hover-border-color: #9a6d04; }
 #reply-target { max-width: 50%; }
+.signature-row { display: flex; align-items: center; gap: .5rem; margin-top: .4rem; font-size: .85rem; min-width: 0; }
+.signature-preview { color: var(--bs-secondary-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 
 /* ------------------------------------------------------------ admin */
 .admin-view { flex: 1; min-height: 0; overflow-y: auto; background: var(--bs-tertiary-bg); }

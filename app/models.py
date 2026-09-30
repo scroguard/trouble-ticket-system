@@ -130,6 +130,8 @@ class User(TimestampMixin, Base):
         Boolean, nullable=False, default=True, server_default=text("true")
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Appended to this agent's public replies (plain text); NULL = none.
+    signature: Mapped[str | None] = mapped_column(Text)
 
     assigned_tickets: Mapped[list["Ticket"]] = relationship(
         back_populates="assignee", foreign_keys="Ticket.assigned_to_id"

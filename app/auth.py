@@ -26,7 +26,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.errors import APIError
 from app.models import LoginFailure, User, UserRole, UserSession
-from app.schemas import LoginIn, LoginOut, PasswordChange, RegisterIn, UserOut
+from app.schemas import LoginIn, LoginOut, PasswordChange, ProfileUpdate, RegisterIn, UserOut
 from app.security import hash_password, hash_token, needs_rehash, new_session_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -246,6 +246,15 @@ def logout(request: Request, db: DB) -> Response:
 @router.get("/me", response_model=UserOut)
 def me(user: CurrentUser) -> User:
     return user
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(payload: ProfileUpdate, user: CurrentUser, db: DB) -> UserOut:
+    """Update your own profile (currently: your reply signature)."""
+    if "signature" in payload.model_fields_set:
+        user.signature = payload.signature
+    db.flush()
+    return UserOut.model_validate(user)
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)

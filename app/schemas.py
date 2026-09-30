@@ -38,6 +38,28 @@ class UserOut(UserBrief):
     is_active: bool
     last_login_at: datetime | None
     created_at: datetime
+    signature: str | None = None
+
+
+SIGNATURE_MAX = 2000
+
+
+class ProfileUpdate(BaseModel):
+    """PATCH /auth/me: what users may change about themselves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Empty or whitespace-only clears the signature.
+    signature: Annotated[str, StringConstraints(max_length=SIGNATURE_MAX)] | None = None
+
+    @field_validator("signature")
+    @classmethod
+    def _normalize(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lines = [line.rstrip() for line in value.replace("\r\n", "\n").split("\n")]
+        text = "\n".join(lines).strip("\n")
+        return text if text.strip() else None
 
 
 class UserAdminOut(UserOut):
@@ -228,6 +250,8 @@ class CommentCreate(BaseModel):
     is_internal: bool = False
     # Optionally move the ticket in the same step (e.g. reply and set to "pending").
     status: TicketStatus | None = None
+    # Append the author's saved signature (public replies only; ignored for notes).
+    include_signature: bool = True
 
     @field_validator("body")
     @classmethod

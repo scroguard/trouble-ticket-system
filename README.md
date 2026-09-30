@@ -79,6 +79,10 @@ Python · FastAPI · PostgreSQL · SQLAlchemy/Alembic · vanilla JS + Bootstrap 
   is recorded in the ticket history.
 - Reply to the customer by email, or add an **internal note** only agents can see,
   optionally setting the status in the same step. Ctrl+Enter sends.
+- **Personal signature:** each agent can save a signature (menu under their name →
+  **My signature**). It's added to their customer replies automatically, with a
+  per-reply **Add my signature** checkbox to leave it off; internal notes never get
+  it. Agents without a signature get a simple name line in emails instead.
 - Auto-refresh every 30 seconds with new-ticket alerts, drafts kept per ticket,
   a direct link to every ticket, dark mode, and a layout that works on phones.
 
@@ -720,11 +724,12 @@ The dashboard uses a JSON API that you can also call directly. Interactive docs 
 | `POST /auth/register` | admin (anyone while no users exist) | Create a user |
 | `POST /auth/login` · `POST /auth/logout` · `GET /auth/me` | | Session management |
 | `POST /auth/change-password` | signed-in user | Change your own password |
+| `PATCH /auth/me` | signed-in user | Update your own profile: `signature` (empty clears it) |
 | `GET /api/tickets` | agent | List tickets. Filters: `status` (repeatable), `priority`, `assigned_to` (`me`, `none`, or a user id), `q` (search), `sort`, `limit`, `offset` |
 | `GET /api/tickets/{id}` | agent | Ticket with full history and attachments |
 | `PATCH /api/tickets/{id}` | agent | Change `status`, `priority` or `assigned_to` (emails the new assignee) |
 | `POST /api/tickets/{id}/claim` | agent | Assign an unassigned ticket to yourself (409 if someone else owns it) |
-| `POST /api/tickets/{id}/comments` | agent | Public reply (emailed) or internal note (`is_internal: true`); optional `status` |
+| `POST /api/tickets/{id}/comments` | agent | Public reply (emailed) or internal note (`is_internal: true`); optional `status`; `include_signature` (default `true`) |
 | `POST /api/tickets/{id}/comments/{cid}/resend` | agent | Retry a reply that failed to send |
 | `GET /api/attachments/{id}` | agent | Download an attachment |
 | `GET /api/users` · `GET /api/users/{id}` | agent | User directory |

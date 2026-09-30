@@ -95,6 +95,14 @@ def _audit(db: Session, ticket: Ticket, actor: User, changes: list[str]) -> None
         )
 
 
+def _with_signature(payload: CommentCreate, user: User) -> str:
+    """Public replies get the author's saved signature appended, so the customer sees
+    the same text in their email and in the portal. Notes never do."""
+    if payload.is_internal or not payload.include_signature or not user.signature:
+        return payload.body
+    return f"{payload.body}\n\n{user.signature}"
+
+
 def _parse_assigned_to(value: str | None, user: User) -> int | Literal["none"] | None:
     if value is None:
         return None
@@ -284,7 +292,7 @@ def add_comment(
         author=user,
         author_email=user.email,
         author_name=user.full_name,
-        body=payload.body,
+        body=_with_signature(payload, user),
         is_internal=payload.is_internal,
         source=MessageSource.WEB,
         delivery_status=None if payload.is_internal else DeliveryStatus.PENDING,
