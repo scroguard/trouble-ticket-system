@@ -10,8 +10,12 @@ their original timestamps. Nothing is emailed.
 
 Safe to run repeatedly: tickets are matched on the HESK tracking ID and replies/notes
 on their HESK ids, so a second run only adds what is new (e.g. a final catch-up at
-switchover). Built against the HESK 3.x schema; columns and tables that a given HESK
-version lacks are skipped.
+switchover). Supports both HESK data layouts:
+  * up to 3.4: the customer's name/email are columns on the ticket;
+  * 3.5+: customers live in `customers`, linked via `ticket_to_customer` (REQUESTER /
+    FOLLOWER), and customer replies point to a customer id. Installs upgraded to 3.5
+    also keep the old values in `tickets.u_name` / `u_email`, used as a fallback.
+Columns and tables that a given HESK version lacks are skipped.
 """
 
 from __future__ import annotations
@@ -151,6 +155,8 @@ class HeskSource:
         self.tables = {row["t"] for row in self.q("SELECT table_name AS t FROM information_schema.tables WHERE table_schema = DATABASE()")}
         if self.t("tickets") not in self.tables:
             raise SystemExit(f"No {self.t('tickets')} table found. Is --prefix right? (tables: {sorted(self.tables)[:10]})")
+        # HESK 3.5+ customer accounts
+        self.has_customers = {self.t("customers"), self.t("ticket_to_customer")} <= self.tables
 
     def t(self, name: str) -> str:
         return f"{self.prefix}{name}"
@@ -180,7 +186,7 @@ class HeskSource:
         sql = f"SELECT id FROM `{self.t('tickets')}` ORDER BY id"
         return [r["id"] for r in self.q(sql + (f" LIMIT {int(limit)}" if limit else ""))]
 
-    def batch(self, ids: list[int]) -> tuple[list[dict], dict[int, list[dict]], dict[int, list[dict]], dict[int, dict]]:
+    def batch(self, ids: list[int]) -> Batch:
         marks = ",".join(["%s"] * len(ids))
         tickets = self.q(f"SELECT * FROM `{self.t('tickets')}` WHERE id IN ({marks}) ORDER BY id", ids)
         replies: dict[int, list[dict]] = defaultdict(list)
@@ -196,7 +202,57 @@ class HeskSource:
             tmarks = ",".join(["%s"] * len(tracks))
             for a in self.q(f"SELECT * FROM `{self.t('attachments')}` WHERE ticket_id IN ({tmarks})", tracks):
                 attachments[a["att_id"]] = a
-        return tickets, replies, notes, attachments
+        links: dict[int, list[dict]] = defaultdict(list)
+        customers: dict[int, dict] = {}
+        if self.has_customers:
+            for row in self.q(
+                f"SELECT tc.ticket_id, tc.customer_type, c.id, c.name, c.email "
+                f"FROM `{self.t('ticket_to_customer')}` tc JOIN `{self.t('customers')}` c ON c.id = tc.customer_id "
+                f"WHERE tc.ticket_id IN ({marks}) ORDER BY tc.id", ids,
+            ):
+                links[row["ticket_id"]].append(row)
+                customers[row["id"]] = row
+            # Customers who replied without being linked to the ticket (rare, but possible).
+            extra = {r.get("customer_id") for rs in replies.values() for r in rs} - set(customers) - {None, 0}
+            if extra:
+                cmarks = ",".join(["%s"] * len(extra))
+                for row in self.q(f"SELECT id, name, email FROM `{self.t('customers')}` WHERE id IN ({cmarks})", list(extra)):
+                    customers[row["id"]] = row
+        return Batch(tickets, replies, notes, attachments, links, customers)
+
+
+@dataclass
+class Batch:
+    tickets: list[dict]
+    replies: dict[int, list[dict]]
+    notes: dict[int, list[dict]]
+    attachments: dict[int, dict]
+    links: dict[int, list[dict]]    # ticket id -> ticket_to_customer rows (3.5+)
+    customers: dict[int, dict]      # customer id -> customer (3.5+)
+
+
+@dataclass
+class People:
+    name: str | None
+    email: str | None
+    others: list[str]               # followers / extra addresses
+
+
+def split_emails(value: object) -> list[str]:
+    return [e.strip().lower() for e in str(value or "").replace(";", ",").split(",") if e.strip()]
+
+
+def ticket_people(t: dict, links: list[dict]) -> People:
+    """Who the ticket belongs to, whichever HESK data layout it uses."""
+    requester = next((l for l in links if l["customer_type"] == "REQUESTER"), None)
+    followers = [e for l in links if l["customer_type"] != "REQUESTER" for e in split_emails(l["email"])]
+    if requester is not None:
+        emails = split_emails(requester["email"])
+        return People(hesk_line(requester["name"]) or None, emails[0] if emails else None, emails[1:] + followers)
+    # HESK <= 3.4 (name/email) or an upgraded install's preserved columns (u_name/u_email).
+    name = t.get("name") if "name" in t else t.get("u_name")
+    emails = split_emails(t.get("email") if "email" in t else t.get("u_email"))
+    return People(hesk_line(name) or None, emails[0] if emails else None, emails[1:] + followers)
 
 
 # =========================================================================== import
@@ -273,7 +329,8 @@ class HeskImporter:
         """Every HESK staff id that appears as owner, opener, replier or note author."""
         found: dict[int, str] = {}
         for chunk in _chunks(ids):
-            tickets, replies, notes, _ = self.src.batch(chunk)
+            batch = self.src.batch(chunk)
+            tickets, replies, notes = batch.tickets, batch.replies, batch.notes
             for t in tickets:
                 for key in ("owner", "openedby"):
                     if (t.get(key) or 0) > 0:
@@ -296,11 +353,11 @@ class HeskImporter:
         self.map_staff(self.collect_staff(ids))
         self._commit()
         for chunk in _chunks(ids):
-            tickets, replies, notes, attachments = self.src.batch(chunk)
-            for t in tickets:
+            batch = self.src.batch(chunk)
+            for t in batch.tickets:
                 savepoint = self.db.begin_nested()
                 try:
-                    self.import_ticket(t, replies.get(t["id"], []), notes.get(t["id"], []), attachments)
+                    self.import_ticket(t, batch)
                     savepoint.commit()
                 except Exception as exc:  # one bad ticket must not stop the import
                     savepoint.rollback()
@@ -316,9 +373,11 @@ class HeskImporter:
         if not self.opts.dry_run:
             self.db.commit()
 
-    def import_ticket(self, t: dict, replies: list[dict], notes: list[dict], attachments: dict[int, dict]) -> None:
+    def import_ticket(self, t: dict, batch: Batch) -> None:
         trackid = t["trackid"]
-        fields = self.ticket_fields(t)
+        replies, notes, attachments = batch.replies.get(t["id"], []), batch.notes.get(t["id"], []), batch.attachments
+        people = ticket_people(t, batch.links.get(t["id"], []))
+        fields = self.ticket_fields(t, people)
         ticket = self.db.scalar(select(Ticket).where(Ticket.legacy_ref == trackid))
         created = ticket is None
         if created:
@@ -339,7 +398,7 @@ class HeskImporter:
 
         # Summary note: everything HESK knew that has no column here.
         summary_ref = f"hesk:ticket:{trackid}"
-        summary_body = self.summary(t)
+        summary_body = self.summary(t, people)
         if summary_ref not in known:
             self.db.add(TicketComment(
                 ticket_id=ticket.id, author_name=IMPORT_AUTHOR, body=summary_body, is_internal=True,
@@ -363,11 +422,19 @@ class HeskImporter:
             if ref in known:
                 continue
             staff_id = int(r.get("staffid") or 0)
+            if staff_id:
+                author_email, author_name = None, hesk_line(r.get("name")) or self.staff_names.get(staff_id)
+            else:
+                # 3.5+: replies reference a customer; older: a name column; else the requester.
+                customer = batch.customers.get(r.get("customer_id") or 0)
+                emails = split_emails(customer["email"]) if customer else []
+                author_email = emails[0] if emails else fields["requester_email"]
+                author_name = (hesk_line(customer["name"]) if customer else "") or hesk_line(r.get("name")) or fields["requester_name"]
             comment = TicketComment(
                 ticket_id=ticket.id,
                 author_id=self.staff.get(staff_id) if staff_id else None,
-                author_email=None if staff_id else fields["requester_email"],
-                author_name=hesk_line(r.get("name")) or (self.staff_names.get(staff_id) if staff_id else fields["requester_name"]),
+                author_email=author_email,
+                author_name=author_name,
                 body=hesk_text(r.get("message")),
                 body_html=sanitize_html(r["message_html"]) if r.get("message_html") else None,
                 is_internal=False,
@@ -424,9 +491,8 @@ class HeskImporter:
         else:
             self.report.tickets_unchanged += 1
 
-    def ticket_fields(self, t: dict) -> dict:
+    def ticket_fields(self, t: dict, people: People) -> dict:
         trackid = t["trackid"]
-        emails = [e.strip().lower() for e in str(t.get("email") or "").replace(";", ",").split(",") if e.strip()]
         status_code = int(t.get("status") or 0)
         status = self.opts.status_map.get(status_code) or STATUS_MAP.get(status_code, CUSTOM_STATUS_DEFAULT)
         created_at = as_utc(t.get("dt")) or datetime.now(UTC)
@@ -441,8 +507,8 @@ class HeskImporter:
             "status": status,
             "priority": PRIORITY_MAP.get(str(t.get("priority")), TicketPriority.MEDIUM),
             "source": MessageSource.EMAIL if opened_by in EMAIL_OPENEDBY else MessageSource.WEB,
-            "requester_email": emails[0] if emails else f"no-email+{trackid.lower()}@{NO_EMAIL_DOMAIN}",
-            "requester_name": hesk_line(t.get("name")) or None,
+            "requester_email": people.email or f"no-email+{trackid.lower()}@{NO_EMAIL_DOMAIN}",
+            "requester_name": people.name,
             "assigned_to_id": self.staff.get(owner) if owner else None,
             "created_by_id": self.staff.get(opened_by) if opened_by > 0 else None,
             "created_at": created_at,
@@ -451,7 +517,7 @@ class HeskImporter:
             "resolved_at": resolved_at,
         }
 
-    def summary(self, t: dict) -> str:
+    def summary(self, t: dict, people: People) -> str:
         code = int(t.get("status") or 0)
         status = HESK_STATUS_NAMES.get(code) or self.custom_statuses.get(code) or f"custom #{code}"
         opened_by = int(t.get("openedby") or 0)
@@ -462,9 +528,8 @@ class HeskImporter:
             f" · category: {self.categories.get(t.get('category'), t.get('category'))}",
             f"Opened via: {via}",
         ]
-        emails = [e.strip() for e in str(t.get("email") or "").split(",") if e.strip()]
-        if len(emails) > 1:
-            lines.append("Other addresses: " + ", ".join(emails[1:]))
+        if people.others:
+            lines.append("Other addresses (CC): " + ", ".join(dict.fromkeys(people.others)))
         for fid, name in sorted(self.custom_fields.items()):
             value = hesk_line(t.get(f"custom{fid}"))
             if value:

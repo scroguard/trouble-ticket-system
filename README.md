@@ -417,89 +417,164 @@ docker compose run --rm web python -m app.cli set-password --email a@example.com
 
 ## Importing from HESK
 
-If you're moving from [HESK](https://www.hesk.com), the importer brings over your
-ticket history. It **only reads** from HESK and **sends no emails**.
+If you're moving from [HESK](https://www.hesk.com), the importer brings your ticket
+history over. You run it **from the command line on the server** where this system
+runs. It **only reads** your HESK data and **sends no emails**.
+
+It supports HESK 3.x, including the customer accounts introduced in HESK 3.5. It has
+been tested against HESK 3.2.5 and 3.5.3, including a 3.2.5 help desk upgraded to 3.5.3
+with HESK's own updater.
+
+### What gets imported
 
 | HESK | Imported as |
 |---|---|
-| Ticket (subject, message, customer, dates) | Ticket with its original timestamps; the HESK tracking ID is shown on the ticket and is searchable |
+| Ticket (subject, message, customer, dates) | Ticket with its original timestamps. The HESK tracking ID is shown on the ticket and is searchable. |
 | Customer replies · staff replies | Customer and agent messages in the conversation, with original authors and times |
 | Notes | Internal notes |
 | Attachments | Attached to the same message or note |
-| Staff accounts | Matched to your users by email. Anyone not found is created as an **inactive** agent so their name stays on their replies (activate them in **Admin** if they still work with you). |
-| Category, custom fields, time worked, due date, HESK's action history | Listed in an internal "Imported from HESK" note on each ticket |
+| Staff accounts | Matched to your users by email. Anyone not found is created as an **inactive** agent so their name stays on their replies. |
+| Category, custom fields, CC'd customers, time worked, due date, HESK's action history | Listed in an internal "Imported from HESK" note on each ticket |
 
-Statuses: New → *new*, Waiting reply → *open*, Replied → *pending*, In Progress →
-*in progress*, On Hold → *pending*, Resolved → *resolved*. Custom statuses become *open*
-unless you map them with `--status-map` (e.g. `--status-map 6=resolved,7=pending`).
-Priorities map directly (Critical → *urgent*).
+- **Statuses:** New → *new*, Waiting reply → *open*, Replied → *pending*, In Progress →
+  *in progress*, On Hold → *pending*, Resolved → *resolved*. Custom statuses become *open*
+  unless you map them with `--status-map` (see the [option reference](#option-reference)).
+- **Priorities:** Critical → *urgent*; the others map by name.
+- **Replies to old HESK emails keep working.** A customer who answers an email HESK
+  sent (subject containing `[#ABC-DEF-1234]`) is added to the imported ticket. As in
+  HESK, this only applies when the reply comes from that ticket's customer.
+- **Not imported:** knowledge-base articles, canned responses, customer satisfaction
+  ratings, and HESK settings.
 
-**Replies to old HESK emails keep working.** A customer who answers an email HESK
-sent (subject containing `[#ABC-DEF-1234]`) is added to the imported ticket. As in HESK,
-this only applies when the reply comes from that ticket's customer.
+### Where the files go
 
-### 1. Give the importer access to HESK's data
+The importer needs two things from HESK: a **database export** and a copy of HESK's
+**`attachments` folder**. Put both in a folder named `hesk-import` inside this project
+folder, next to `docker-compose.yml`:
 
-You need the HESK **database** and HESK's **`attachments` folder** (inside your HESK
-installation directory).
+```
+trouble-ticket-system/
+├── docker-compose.yml
+├── .env
+└── hesk-import/            ← create this folder
+    ├── hesk.sql            ← the HESK database export
+    └── attachments/        ← copy of HESK's attachments folder
+```
 
-The simplest way is a copy of the database, loaded into a temporary MariaDB container:
+These files contain your customers' data. `hesk-import/` is already excluded from Git
+and from Docker builds, and step 6 deletes it once you're done.
+
+### Step 1: Export from HESK (on your HESK server)
+
+Your HESK database name, user, password and table prefix are in HESK's
+`hesk_settings.inc.php` (`db_name`, `db_user`, `db_pass`, `db_pfix`).
 
 ```bash
-# On the HESK server: export the database and pack the attachments
-mysqldump --single-transaction -u <user> -p <hesk_database> > hesk.sql
-tar czf hesk-attachments.tgz -C /path/to/hesk attachments
+mysqldump --single-transaction --default-character-set=utf8mb4 -u DB_USER -p DB_NAME > hesk.sql
+tar czf hesk-attachments.tgz -C /path/to/your/hesk attachments
+```
 
-# On the new server, next to docker-compose.yml:
-mkdir hesk-attachments && tar xzf hesk-attachments.tgz -C hesk-attachments --strip-components=1
+On hosting without shell access, export the database as SQL from phpMyAdmin, and
+download the `attachments` folder with FTP or your host's file manager.
+
+Copy `hesk.sql` and `hesk-attachments.tgz` to the new server (for example with `scp`).
+
+### Step 2: Put the files in place (on the new server, in this project folder)
+
+```bash
+mkdir -p hesk-import
+mv ~/hesk.sql hesk-import/
+tar xzf ~/hesk-attachments.tgz -C hesk-import     # creates hesk-import/attachments/
+```
+
+### Step 3: Load the export into a temporary database
+
+The system must be running (`docker compose up -d`). This starts a throwaway MariaDB
+container, loads `hesk.sql` into it, and waits until it's ready:
+
+```bash
 docker run -d --name hesk-import-db --network tickets_default \
   -e MARIADB_ROOT_PASSWORD=temp-password -e MARIADB_DATABASE=hesk \
-  -v "$PWD/hesk.sql:/docker-entrypoint-initdb.d/hesk.sql:ro" mariadb:11
-docker logs -f hesk-import-db    # wait for "ready for connections", then Ctrl+C
+  -v "$PWD/hesk-import/hesk.sql:/docker-entrypoint-initdb.d/hesk.sql:ro" \
+  mariadb:11
+until docker exec hesk-import-db healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; do sleep 3; done; echo "Database ready"
 ```
 
-Alternatively, connect straight to the live HESK database. Create a read-only MySQL user
-(`GRANT SELECT ON hesk.* TO ...`) and use its address in place of `hesk-import-db`
-below. The database must be reachable from the Docker containers.
+A large help desk can take a few minutes to load.
 
-### 2. Preview, then import
+### Step 4: Preview with a dry run
+
+The dry run does the whole import, prints a report, and then undoes it:
 
 ```bash
-# Dry run: does everything, prints a report, then rolls back
 docker compose run --rm \
   -e HESK_DB_URL=mysql://root:temp-password@hesk-import-db:3306/hesk \
-  -v "$PWD/hesk-attachments:/hesk-attachments:ro" \
+  -v "$PWD/hesk-import/attachments:/hesk-attachments:ro" \
   web python -m app.hesk_import --attachments-dir /hesk-attachments --dry-run
-
-# Looks right? Run it again without --dry-run.
 ```
 
-Options: `--prefix` if your HESK tables don't start with `hesk_`, `--limit 50` for a
-trial with the first 50 tickets, `--status-map` as above, and `-v` for a per-ticket log.
-The report lists any attachment files it couldn't find and any tickets that failed. A
-failed ticket doesn't stop the rest.
+Check the report:
+- **Tickets created** should match the number of tickets in HESK.
+- **Missing attachment files** should be empty. If it isn't, the `attachments` copy is
+  incomplete.
+- **FAILED tickets** should be empty. Each failure is listed with its HESK tracking ID,
+  and a failed ticket doesn't stop the rest.
+- **Staff matched / created** shows how many HESK staff matched your users by email.
 
-### 3. Switching over
+If your HESK table prefix isn't `hesk_`, add `--prefix` with your `db_pfix` value.
 
-The import can be **run as many times as you like**. Tickets and messages already
-imported are skipped, so a later run only brings in what's new:
+### Step 5: Import
 
-1. Import now, and let your team look around while HESK stays in use.
-2. At switchover, run the import once more to pick up the latest replies, then point
-   your support mailbox and customers to the new system.
+Run the same command **without `--dry-run`**. Then open the dashboard and check a few
+tickets; you can search for a HESK tracking ID.
 
-When a later run finds new activity in HESK, it adds the new replies and notes, and
-updates status, priority and owner from HESK. The exception is tickets your agents have
-already worked on here: those keep their current status, priority and owner, and only
-the new messages are added.
+### Step 6: Tidy up
 
-To start over: `docker compose run --rm web python -m app.hesk_import --purge --yes`
-deletes every imported ticket (staff accounts created by the import are kept).
-When you're done, remove the temporary database: `docker rm -f hesk-import-db`.
+1. **Staff:** open **Admin**. Staff created by the import are inactive. **Reactivate**
+   and **Reset password** for anyone who still works with you. Staff shown as
+   "HESK staff #N" were deleted from HESK before it was upgraded to 3.5; HESK itself
+   no longer stores their names. Use **Edit** to give them a name, and it appears on
+   all their old replies.
+2. **Remove the temporary database and the export files:**
+   ```bash
+   docker rm -fv hesk-import-db
+   rm -rf hesk-import
+   ```
 
-> Tested against a real HESK 3.2.5 installation (web and emailed tickets, attachments,
-> custom fields and statuses, deleted staff). Newer 3.x releases haven't been tested; the
-> importer tolerates missing columns and tables, but check the `--dry-run` report first.
+### Switching over
+
+You can **run the import as many times as you like**. Tickets and messages already
+imported are skipped, so a later run only brings in what's new. This lets you test the
+new system while HESK stays in use:
+
+1. Import now (steps 1–6) and let your team look around.
+2. At switchover, run the import once more: redo steps 1–3 with a fresh export (run
+   `docker rm -fv hesk-import-db` first if it still exists), then step 5.
+3. Point your support mailbox and customers to the new system, then do step 6.
+
+On a later run, new replies and notes are added, and status, priority and owner are
+updated from HESK. The exception is tickets your agents have already worked on here:
+those keep their current status, priority and owner, and only the new messages are added.
+
+To start over, `docker compose run --rm web python -m app.hesk_import --purge --yes`
+deletes every imported ticket. Staff accounts created by the import are kept.
+
+### Option reference
+
+| Option | Purpose |
+|---|---|
+| `--hesk-db URL` or `HESK_DB_URL` | HESK database, as `mysql://user:password@host:3306/database` |
+| `--attachments-dir PATH` | HESK's attachments folder, as mounted into the container |
+| `--dry-run` | Do everything, print the report, then undo it |
+| `--prefix PREFIX` | HESK table prefix (default `hesk_`) |
+| `--status-map 6=resolved,7=pending` | Map HESK custom status IDs (HESK → Settings → Statuses) to *new*, *open*, *in_progress*, *pending*, *resolved* or *closed* |
+| `--limit N` | Only import the first N tickets (for a quick trial) |
+| `-v` | Print a line for each staff member and ticket |
+| `--purge --yes` | Delete all imported tickets |
+
+Instead of a temporary database, you can point `--hesk-db` straight at your live HESK
+database. Use a read-only MySQL user (`GRANT SELECT ON hesk.* TO ...`); the database
+must be reachable from the Docker containers.
 
 ---
 

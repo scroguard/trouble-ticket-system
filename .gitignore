@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 data/
+# HESK import files: third-party code (not ours to redistribute) and exports that
+# contain customer data. Never commit these.
+hesk*.zip
+hesk-import/
