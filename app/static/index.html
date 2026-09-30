@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Desk</title>
+  <script src="/static/theme.js"></script>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+        integrity="sha384-XGjxtQfXaH2tnPFa9x+ruJTuLE3Aa6LhHSWRr1XeTyhezb4abCG4ccI5AkVDxqC+"
+        crossorigin="anonymous">
+  <link rel="stylesheet" href="/static/app.css?v=6">
+  <script defer
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+          crossorigin="anonymous"></script>
+  <script defer src="/static/app.js?v=7"></script>
+</head>
+<body>
+
+<!-- ================================================================ boot -->
+<div id="boot-view" class="boot-view">
+  <div class="spinner-border text-secondary" role="status"><span class="visually-hidden">Loading…</span></div>
+</div>
+
+<!-- ================================================================ login -->
+<main id="login-view" class="login-view d-none">
+  <form id="login-form" class="login-card card shadow-sm" novalidate>
+    <div class="card-body p-4">
+      <div class="d-flex align-items-center gap-2 mb-4">
+        <i class="bi bi-life-preserver fs-3 text-primary"></i>
+        <h1 class="h4 mb-0">Support Desk</h1>
+      </div>
+      <h2 id="login-title" class="h6 text-body-secondary mb-3">Sign in to the agent dashboard</h2>
+      <div id="login-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
+
+      <div id="login-name-group" class="mb-3 d-none">
+        <label for="login-name" class="form-label">Full name</label>
+        <input id="login-name" class="form-control" autocomplete="name" maxlength="200">
+      </div>
+      <div class="mb-3">
+        <label for="login-email" class="form-label">Email</label>
+        <input id="login-email" type="email" class="form-control" autocomplete="username" required autofocus>
+      </div>
+      <div class="mb-4">
+        <label for="login-password" class="form-label">Password</label>
+        <input id="login-password" type="password" class="form-control" autocomplete="current-password" required>
+        <div id="login-password-hint" class="form-text d-none">At least 10 characters.</div>
+      </div>
+      <button id="login-submit" type="submit" class="btn btn-primary w-100">Sign in</button>
+      <div class="text-center mt-3">
+        <button id="login-mode-toggle" type="button" class="btn btn-link btn-sm text-decoration-none">
+          First-time setup: create the admin account
+        </button>
+      </div>
+    </div>
+  </form>
+</main>
+
+<!-- ================================================================ app -->
+<div id="app-view" class="app-view d-none">
+  <header class="topbar border-bottom">
+    <a class="brand" href="#/">
+      <i class="bi bi-life-preserver text-primary"></i><span>Support Desk</span>
+    </a>
+
+    <a id="admin-back" href="#/" class="btn btn-sm btn-outline-secondary d-none">
+      <i class="bi bi-arrow-left me-1"></i>Tickets
+    </a>
+    <nav class="status-tabs" aria-label="Ticket status filter">
+      <ul id="status-tabs" class="nav nav-pills flex-nowrap">
+        <li class="nav-item"><button class="nav-link" type="button" data-filter="all">All <span class="tab-count"></span></button></li>
+        <li class="nav-item"><button class="nav-link" type="button" data-filter="new">New <span class="tab-count"></span></button></li>
+        <li class="nav-item"><button class="nav-link" type="button" data-filter="open">Open <span class="tab-count"></span></button></li>
+        <li class="nav-item"><button class="nav-link" type="button" data-filter="pending">Pending <span class="tab-count"></span></button></li>
+        <li class="nav-item"><button class="nav-link" type="button" data-filter="resolved">Resolved <span class="tab-count"></span></button></li>
+      </ul>
+    </nav>
+
+    <div class="topbar-actions">
+      <span id="last-updated" class="small text-body-secondary d-none d-md-inline" aria-live="polite"></span>
+      <div class="form-check form-switch mb-0 d-none d-sm-block" title="Check for new tickets every 30 seconds">
+        <input id="auto-refresh" class="form-check-input" type="checkbox" role="switch" checked>
+        <label for="auto-refresh" class="form-check-label small">Auto</label>
+      </div>
+      <a id="admin-link" href="#/admin" class="btn btn-outline-secondary btn-sm d-none" title="Manage users">
+        <i class="bi bi-people"></i><span class="d-none d-lg-inline ms-1">Admin</span>
+      </a>
+      <button id="refresh-btn" type="button" class="btn btn-outline-secondary btn-sm" title="Refresh (R)">
+        <i class="bi bi-arrow-clockwise"></i><span class="d-none d-lg-inline ms-1">Refresh</span>
+      </button>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-light border dropdown-toggle user-menu-btn" type="button"
+                data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-person-circle"></i> <span id="me-name" class="d-none d-md-inline"></span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><h6 id="me-detail" class="dropdown-header"></h6></li>
+          <li class="admin-only d-none"><a class="dropdown-item" href="#/admin"><i class="bi bi-people me-2"></i>Manage users</a></li>
+          <li><button id="theme-toggle" class="dropdown-item" type="button"><i class="bi bi-circle-half me-2"></i>Toggle dark mode</button></li>
+          <li><button id="change-password-open" class="dropdown-item" type="button"><i class="bi bi-key me-2"></i>Change password</button></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><button id="logout-btn" class="dropdown-item text-danger" type="button"><i class="bi bi-box-arrow-right me-2"></i>Sign out</button></li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <div class="panes">
+    <!-- ---------------------------------------------- left: ticket list -->
+    <aside id="list-pane" class="list-pane border-end" aria-label="Tickets">
+      <div class="list-toolbar border-bottom">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="search" type="search" class="form-control" placeholder="Search subject & body  ( / )"
+                 aria-label="Search tickets" maxlength="200">
+        </div>
+        <div class="d-flex gap-2 mt-2">
+          <select id="assigned-filter" class="form-select form-select-sm" aria-label="Assignee filter">
+            <option value="">Anyone</option>
+            <option value="me">Assigned to me</option>
+            <option value="none">Unassigned</option>
+          </select>
+          <select id="sort" class="form-select form-select-sm" aria-label="Sort order">
+            <option value="-last_activity_at">Recent activity</option>
+            <option value="-priority">Priority</option>
+            <option value="-created_at">Newest</option>
+            <option value="created_at">Oldest</option>
+          </select>
+        </div>
+      </div>
+      <div class="list-summary small text-body-secondary px-3 py-2 border-bottom">
+        <span id="list-count">Loading…</span>
+      </div>
+      <div id="ticket-list" class="ticket-list"></div>
+      <div class="p-3 text-center">
+        <button id="load-more" type="button" class="btn btn-sm btn-outline-secondary d-none">Load more</button>
+      </div>
+    </aside>
+
+    <!-- ---------------------------------------------- right: workspace -->
+    <section id="workspace" class="workspace" aria-label="Ticket workspace">
+      <div id="workspace-empty" class="workspace-empty">
+        <i class="bi bi-inboxes"></i>
+        <p class="mb-0">Select a ticket to view the conversation.</p>
+      </div>
+
+      <div id="workspace-loading" class="workspace-empty d-none">
+        <div class="spinner-border text-secondary" role="status"><span class="visually-hidden">Loading ticket…</span></div>
+      </div>
+
+      <div id="workspace-body" class="workspace-body d-none">
+        <div id="ticket-header" class="ticket-header border-bottom">
+          <div class="d-flex align-items-start gap-2">
+            <button id="back-btn" type="button" class="btn btn-sm btn-outline-secondary back-btn" aria-label="Back to list">
+              <i class="bi bi-arrow-left"></i>
+            </button>
+            <div class="flex-grow-1 min-w-0">
+              <h2 id="t-subject" class="h5 mb-1 text-break"></h2>
+              <div class="small text-body-secondary d-flex flex-wrap align-items-center gap-2">
+                <span id="t-code" class="font-monospace fw-semibold"></span>
+                <span class="meta-extra" aria-hidden="true">·</span>
+                <span id="t-requester" class="text-break"></span>
+                <span class="meta-extra" aria-hidden="true">·</span>
+                <span id="t-created" class="meta-extra"></span>
+              </div>
+            </div>
+            <div class="d-flex gap-1 flex-shrink-0 pt-1">
+              <span id="t-status-badge"></span>
+              <span id="t-priority-badge"></span>
+            </div>
+          </div>
+          <div class="ticket-controls">
+            <div class="control">
+              <label for="t-assignee" class="form-label">Assignee</label>
+              <div class="input-group input-group-sm">
+                <select id="t-assignee" class="form-select form-select-sm"></select>
+                <button id="t-assign-me" type="button" class="btn btn-outline-primary" title="Assign to me">
+                  <i class="bi bi-person-check"></i>
+                </button>
+              </div>
+            </div>
+            <div class="control">
+              <label for="t-status" class="form-label">Status</label>
+              <select id="t-status" class="form-select form-select-sm"></select>
+            </div>
+            <div class="control">
+              <label for="t-priority" class="form-label">Priority</label>
+              <select id="t-priority" class="form-select form-select-sm"></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-wrap">
+          <div id="timeline" class="timeline" aria-live="polite"></div>
+          <button id="new-activity" type="button" class="btn btn-primary btn-sm shadow new-activity d-none">
+            <i class="bi bi-arrow-down"></i> New activity
+          </button>
+        </div>
+
+        <form id="reply-form" class="reply-box border-top" novalidate>
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+            <div class="btn-group btn-group-sm" role="group" aria-label="Reply type">
+              <input type="radio" class="btn-check" name="reply-mode" id="mode-public" value="public" checked>
+              <label class="btn btn-outline-primary" for="mode-public"><i class="bi bi-envelope me-1"></i><span class="d-none d-sm-inline">Send as email reply to customer</span><span class="d-sm-none">Email customer</span></label>
+              <input type="radio" class="btn-check" name="reply-mode" id="mode-internal" value="internal">
+              <label class="btn btn-outline-warning" for="mode-internal"><i class="bi bi-lock me-1"></i><span class="d-none d-sm-inline">Internal note only</span><span class="d-sm-none">Internal note</span></label>
+            </div>
+            <span id="reply-target" class="small text-body-secondary text-truncate"></span>
+          </div>
+          <textarea id="reply-body" class="form-control" rows="4" maxlength="50000"
+                    placeholder="Write your reply…" aria-label="Reply text"></textarea>
+          <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+            <label for="reply-status" class="small text-body-secondary mb-0 reply-status-label">Then set status</label>
+            <select id="reply-status" class="form-select form-select-sm w-auto">
+              <option value="">Keep current</option>
+              <option value="pending">Pending (awaiting customer)</option>
+              <option value="resolved">Resolved</option>
+            </select>
+            <span class="small text-body-secondary ms-auto d-none d-md-inline">Ctrl + Enter to send</span>
+            <button id="reply-submit" type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-send me-1"></i>Submit Reply
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <!-- ---------------------------------------------- admin: users -->
+  <section id="admin-view" class="admin-view d-none" aria-labelledby="admin-title">
+    <div class="admin-inner">
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+        <h1 id="admin-title" class="h4 mb-0 me-auto"><i class="bi bi-people me-2"></i>Users</h1>
+        <div class="input-group input-group-sm admin-search">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input id="admin-search" type="search" class="form-control" placeholder="Filter by name or email" aria-label="Filter users">
+        </div>
+        <div class="form-check form-switch mb-0">
+          <input id="admin-show-inactive" class="form-check-input" type="checkbox" role="switch" checked>
+          <label for="admin-show-inactive" class="form-check-label small">Show inactive</label>
+        </div>
+        <button id="admin-add" type="button" class="btn btn-primary btn-sm"><i class="bi bi-person-plus me-1"></i>Add user</button>
+      </div>
+
+      <div id="admin-summary" class="admin-summary mb-3"></div>
+
+      <div class="card">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0 admin-table">
+            <thead>
+              <tr>
+                <th scope="col">User</th>
+                <th scope="col" class="d-none d-md-table-cell">Email</th>
+                <th scope="col" class="d-none d-sm-table-cell">Role</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="d-none d-sm-table-cell text-end">Open tickets</th>
+                <th scope="col" class="d-none d-lg-table-cell">Last sign-in</th>
+                <th scope="col" class="text-end"><span class="visually-hidden">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="admin-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="small text-body-secondary mt-3 mb-0">
+        Users are never deleted, because their replies and assignments are part of ticket history.
+        Deactivating signs a user out immediately and blocks sign-in.
+      </p>
+    </div>
+  </section>
+</div>
+
+<!-- ================================================================ admin: add / edit user -->
+<div class="modal fade" id="user-modal" tabindex="-1" aria-labelledby="user-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form id="user-form" class="modal-content" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="user-modal-title">Add user</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="user-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
+        <div class="mb-3">
+          <label for="u-name" class="form-label">Full name</label>
+          <input id="u-name" class="form-control" maxlength="200" required autocomplete="off">
+        </div>
+        <div class="mb-3">
+          <label for="u-email" class="form-label">Email</label>
+          <input id="u-email" type="email" class="form-control" required autocomplete="off">
+          <div class="form-text">New-ticket alerts and assignment notices go to this address.</div>
+        </div>
+        <div class="mb-3">
+          <label for="u-role" class="form-label">Role</label>
+          <select id="u-role" class="form-select">
+            <option value="agent">Agent: work tickets</option>
+            <option value="admin">Admin: work tickets and manage users</option>
+          </select>
+          <div id="u-role-self" class="form-text d-none">You can't change your own role. Ask another admin.</div>
+        </div>
+        <div id="u-password-group">
+          <label for="u-password" class="form-label">Initial password</label>
+          <div class="input-group">
+            <input id="u-password" type="text" class="form-control font-monospace" minlength="10" autocomplete="new-password" spellcheck="false">
+            <button id="u-generate" type="button" class="btn btn-outline-secondary" title="Generate a strong password"><i class="bi bi-magic"></i></button>
+          </div>
+          <div class="form-text">At least 10 characters. You'll be able to copy it after saving.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="user-submit" type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ================================================================ admin: reset password -->
+<div class="modal fade" id="reset-modal" tabindex="-1" aria-labelledby="reset-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form id="reset-form" class="modal-content" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="reset-modal-title">Reset password</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="reset-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
+        <p id="reset-intro" class="small"></p>
+        <label for="reset-password" class="form-label">New password</label>
+        <div class="input-group">
+          <input id="reset-password" type="text" class="form-control font-monospace" minlength="10" autocomplete="new-password" spellcheck="false">
+          <button id="reset-generate" type="button" class="btn btn-outline-secondary" title="Generate a strong password"><i class="bi bi-magic"></i></button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="reset-submit" type="submit" class="btn btn-danger">Reset password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ================================================================ admin: share credentials -->
+<div class="modal fade" id="secret-modal" tabindex="-1" aria-labelledby="secret-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="secret-modal-title">Password set</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="secret-intro" class="small"></p>
+        <div class="input-group">
+          <input id="secret-value" type="text" class="form-control font-monospace" readonly aria-label="Password">
+          <button id="secret-copy" type="button" class="btn btn-outline-primary"><i class="bi bi-clipboard me-1"></i>Copy</button>
+        </div>
+        <div class="form-text">This is the only time it's shown. Share it privately; they can change it under their name menu → Change password.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ confirm -->
+<div class="modal fade" id="confirm-modal" tabindex="-1" aria-labelledby="confirm-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="confirm-title"></h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div id="confirm-body" class="modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="confirm-ok" type="button" class="btn btn-danger"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ change password -->
+<div class="modal fade" id="password-modal" tabindex="-1" aria-labelledby="password-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form id="password-form" class="modal-content" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="password-modal-title">Change password</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="password-error" class="alert alert-danger py-2 small d-none" role="alert"></div>
+        <div class="mb-3">
+          <label for="pw-current" class="form-label">Current password</label>
+          <input id="pw-current" type="password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <div class="mb-3">
+          <label for="pw-new" class="form-label">New password</label>
+          <input id="pw-new" type="password" class="form-control" autocomplete="new-password" minlength="10" required>
+          <div class="form-text">At least 10 characters. Your other sessions will be signed out.</div>
+        </div>
+        <div>
+          <label for="pw-confirm" class="form-label">Confirm new password</label>
+          <input id="pw-confirm" type="password" class="form-control" autocomplete="new-password" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Change password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toasts" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+</body>
+</html>

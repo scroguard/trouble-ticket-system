@@ -1,0 +1,84 @@
+name: tickets
+
+x-app: &app
+  build: .
+  image: tickets-app:latest
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    - attachments:/data/attachments
+  depends_on:
+    db:
+      condition: service_healthy
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not published to the host; uncomment for local psql access.
+    # ports: ["5432:5432"]
+
+  # One-shot: applies Alembic migrations, then exits. web & worker wait for it.
+  migrate:
+    build: .
+    image: tickets-app:latest
+    env_file: .env
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--workers", "2"]
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    stop_grace_period: 30s
+    healthcheck:
+      # Heartbeat is touched after every successful IMAP poll.
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time() - os.path.getmtime('/tmp/worker-heartbeat') > 900)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  # Optional local IMAP+SMTP server for development: `docker compose --profile mailtest up`
+  # Accepts any login and auto-creates mailboxes. Point .env at host "mail" (see .env.example).
+  mail:
+    image: greenmail/standalone:2.1.3
+    profiles: ["mailtest"]
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap
+        -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled -Dgreenmail.verbose=false
+    ports:
+      - "3025:3025"   # SMTP
+      - "3143:3143"   # IMAP
+
+volumes:
+  pgdata:
+  attachments:
